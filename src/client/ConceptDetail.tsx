@@ -11,7 +11,7 @@
 import type { Concept, DriftFinding } from '../protocol.ts'
 import { t } from './locales.ts'
 import { DriftList } from './DriftList.tsx'
-import { EditIcon } from './icons.tsx'
+import { EditIcon, TrashIcon } from './icons.tsx'
 
 /** Props of the detail pane. */
 export interface ConceptDetailProps {
@@ -20,6 +20,8 @@ export interface ConceptDetailProps {
   showLow: boolean
   onShowLow: (value: boolean) => void
   onEdit: (concept: Concept) => void
+  /** Ask for confirmation before removing the concept from the vocabulary. */
+  onDelete: (concept: Concept) => void
   onAccept: (finding: DriftFinding) => void
   onCopy: (text: string) => void
 }
@@ -46,6 +48,15 @@ export function ConceptDetail(props: ConceptDetailProps) {
         <button type="button" className="sd-button" onClick={() => props.onEdit(concept)}>
           <EditIcon />
           {t('action.edit')}
+        </button>
+        <button
+          type="button"
+          className="sd-button sd-button-danger"
+          title={t('delete.title')}
+          onClick={() => props.onDelete(concept)}
+        >
+          <TrashIcon />
+          {t('action.delete')}
         </button>
       </div>
 

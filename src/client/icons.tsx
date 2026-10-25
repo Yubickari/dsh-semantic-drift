@@ -99,6 +99,14 @@ export function CloseIcon({ size = 12 }: IconProps) {
   )
 }
 
+export function TrashIcon({ size = 13 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path d="M3 4.6h10M6.4 4.6V3.4h3.2v1.2M4.4 4.6l.6 8.2h6l.6-8.2M6.6 7v3.6M9.4 7v3.6" />
+    </svg>
+  )
+}
+
 export function EditIcon({ size = 13 }: IconProps) {
   return (
     <svg {...base(size)}>

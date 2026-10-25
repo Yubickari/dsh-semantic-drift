@@ -11,6 +11,7 @@
 
 export const PANEL_CSS = `
 .sd-root {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -88,6 +89,48 @@ export const PANEL_CSS = `
 }
 .sd-button-primary:hover:not(:disabled) { background: var(--dsw-alias-brand-primary); filter: brightness(1.08); }
 .sd-button-ghost { background: transparent; border-color: transparent; color: var(--dsw-alias-label-secondary); }
+.sd-button-danger { color: var(--dsw-alias-state-error-primary); }
+.sd-button-danger:hover:not(:disabled) { border-color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); }
+.sd-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  flex: none;
+}
+.sd-switch:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.sd-switch:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); }
+.sd-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 17px;
+  border-radius: 9px;
+  background: var(--dsw-alias-border-l2);
+  transition: background .14s ease;
+  flex: none;
+}
+.sd-switch-track[data-on='true'] { background: var(--dsw-alias-brand-primary); }
+.sd-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  transition: transform .14s ease;
+}
+.sd-switch-track[data-on='true'] .sd-switch-knob { transform: translateX(13px); }
 .sd-button-ghost:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
 .sd-input, .sd-select, .sd-textarea {
   width: 100%;
@@ -353,6 +396,28 @@ export const PANEL_CSS = `
 .sd-raw { display: flex; flex-direction: column; gap: 10px; height: 100%; }
 .sd-raw .sd-textarea { flex: 1; min-height: 340px; }
 .sd-muted { color: var(--dsw-alias-label-secondary); }
+.sd-dialog {
+  width: 460px;
+  max-width: 90%;
+  background: var(--dsw-alias-bg-overlay);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sd-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.sd-dialog-title { font-size: 14px; font-weight: 600; }
+.sd-dialog-body { color: var(--dsw-alias-label-secondary); font-size: 12px; overflow-wrap: anywhere; }
 .sd-meta { font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .sd-clickable { cursor: pointer; }
 .sd-clickable:hover { text-decoration: underline; }

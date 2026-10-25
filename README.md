@@ -31,6 +31,7 @@ Sidebar: Semantics
   - [What it solves](#what-it-solves)
   - [Install](#install)
   - [Quick start](#quick-start)
+    - [Following the workspace](#following-the-workspace)
     - [The unclassified list](#the-unclassified-list)
   - [The vocabulary file](#the-vocabulary-file)
   - [Detectors](#detectors)
@@ -97,6 +98,19 @@ Publishing to npm is possible but not required; the unscoped name
 5. Accept a finding you intend to keep, with a **reason**. The exception is
    written into the vocabulary, so the next scan stays quiet about it and the
    next reader learns why.
+
+### Following the workspace
+
+The **Auto** switch in the header makes the panel follow the current DSH
+workspace: switching sessions switches the vocabulary and rescans. Turning it off
+pins the workspace you last picked from the dropdown, and the choice is
+remembered per browser (not stored in the project). Picking a workspace from the
+dropdown pins it too, because an explicit choice outranks following.
+
+A selected concept carries **Edit** and **Delete** next to its title. Deleting
+removes the entry and every accepted exception it recorded from the vocabulary
+file; no code is touched, and findings only it covered return to the unclassified
+list.
 
 ### The unclassified list
 
@@ -272,9 +286,17 @@ compilation, no code generation. One YAML file and a scanner.
 
 ```bash
 pnpm install
-pnpm test          # node --test, 59 tests, no test framework
+pnpm typecheck     # tsc over the browser half: catches undefined identifiers
+pnpm test          # typecheck + node --test, 62 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
+
+`tsc` deliberately covers only the browser half: it needs no host package types,
+and it is the check that catches a helper renamed in one place but called in
+another — a class of bug that a bundler happily ships and that a static render
+never reaches. The four flow tests in `test/panel-flow.test.mjs` then load the
+built `lib/client.js` in jsdom, stub `fetch` with the host's real payloads, and
+drive the panel the way a user does.
 
 `src/` is the source of truth; `lib/` is the built artifact and is committed so a
 git install needs no build. The browser half is wrapped in DSH's

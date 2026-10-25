@@ -58,6 +58,23 @@ function render(element) {
   return renderToStaticMarkup(element)
 }
 
+test('a concept offers delete next to edit', () => {
+  const html = render(createElement(ui.ConceptDetail, {
+    concept,
+    findings: [],
+    showLow: false,
+    onShowLow: () => undefined,
+    onEdit: () => undefined,
+    onDelete: () => undefined,
+  }))
+  assert.match(html, /删除/)
+  assert.match(html, /编辑/)
+  const edit = html.indexOf('编辑')
+  const remove = html.indexOf('删除')
+  assert.ok(edit < remove, 'delete follows edit in the header row')
+  assert.match(html, /sd-button-danger/)
+})
+
 test('the concept editor shows a duplicate-symbol issue, localized and verbatim', () => {
   const html = render(createElement(ui.ConceptEditor, {
     concept: undefined,

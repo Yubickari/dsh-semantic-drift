@@ -17,6 +17,7 @@ import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
 import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
 import { Notice } from './Notice.tsx'
+import { loadPreferences, savePreferences } from './preferences.ts'
 import type { NoticeValue } from './Notice.tsx'
 import { ConceptEditor } from './ConceptEditor.tsx'
 import { ConceptTree } from './ConceptTree.tsx'
@@ -24,7 +25,7 @@ import { DriftList } from './DriftList.tsx'
 import { RawEditor } from './RawEditor.tsx'
 import { maybeT, t, tf } from './locales.ts'
 import type { MessageKey } from './locales.ts'
-import { CodeIcon, PlusIcon, RefreshIcon } from './icons.tsx'
+import { CodeIcon, PlusIcon, RefreshIcon, TrashIcon } from './icons.tsx'
 import { PANEL_CSS } from './styles.ts'
 
 /** Standard props the shell passes to a `main` entry. Both are optional so a
@@ -113,7 +114,12 @@ export function SemanticPanel(props: PanelProps) {
   const workspacesSnapshot = readSnapshot(props.useWorkspaces)
   const suggested = sessionDirectory(sessionsSnapshot) ?? workspaceDirectory(workspacesSnapshot)
 
-  const [requested, setRequested] = useState<string | undefined>(undefined)
+  // View preferences survive a reload: whether the panel follows the current
+  // session's workspace, and which workspace it was pinned to otherwise.
+  const [preferences] = useState(() => loadPreferences())
+  const [auto, setAuto] = useState(preferences.auto)
+  const [pinned, setPinned] = useState<string | undefined>(preferences.workspace)
+  const [requested, setRequested] = useState<string | undefined>(preferences.auto ? undefined : preferences.workspace)
   const [state, setState] = useState<StateResponse | null>(null)
   const [scan, setScan] = useState<ScanResponse | null>(null)
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
@@ -127,6 +133,7 @@ export function SemanticPanel(props: PanelProps) {
   const [acceptTarget, setAcceptTarget] = useState<DriftFinding | null>(null)
   const [acceptReason, setAcceptReason] = useState('')
   const [acceptConceptId, setAcceptConceptId] = useState<string | undefined>(undefined)
+  const [deleteTarget, setDeleteTarget] = useState<Concept | null>(null)
 
   const effectivePath = state?.workspace.path
 
@@ -162,9 +169,17 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [])
 
+  // Auto: follow whatever the session currently points at. Pinned: stay on the
+  // workspace the user last picked, even when the session moves elsewhere.
+  const target = auto ? suggested : (requested ?? pinned ?? suggested)
+
   useEffect(() => {
-    void load(requested ?? suggested)
-  }, [requested, suggested, load])
+    void load(target)
+  }, [target, load])
+
+  useEffect(() => {
+    savePreferences({ auto, ...(pinned === undefined ? {} : { workspace: pinned }) })
+  }, [auto, pinned])
 
   useEffect(() => {
     if (effectivePath === undefined) return
@@ -291,6 +306,61 @@ export function SemanticPanel(props: PanelProps) {
       setBusy(null)
     }
   }, [effectivePath, scanPath])
+
+  /** Turn following off: keep the workspace on screen and remember it. */
+  const toggleAuto = useCallback(() => {
+    if (auto) {
+      const keep = effectivePath ?? pinned
+      setAuto(false)
+      if (keep !== undefined) {
+        setPinned(keep)
+        setRequested(keep)
+      }
+    } else {
+      setAuto(true)
+      setRequested(undefined)
+    }
+  }, [auto, effectivePath, pinned])
+
+  /** Picking a workspace pins it: an explicit choice outranks following. */
+  const selectWorkspace = useCallback((path: string) => {
+    setRequested(path)
+    setPinned(path)
+    setAuto(false)
+  }, [])
+
+  const openDelete = useCallback((concept: Concept) => {
+    setDeleteTarget(concept)
+  }, [])
+
+  const confirmDelete = useCallback(async () => {
+    if (deleteTarget === null) return
+    if (effectivePath === undefined || vocabulary === undefined) {
+      notReady()
+      return
+    }
+    setBusy('save')
+    try {
+      const document = {
+        ...vocabulary.document,
+        concepts: concepts.filter(concept => concept.id !== deleteTarget.id),
+      }
+      const result = await saveDocument(effectivePath, document)
+      setState(current => (current === null ? current : { ...current, vocabulary: result.vocabulary }))
+      if (selection.kind === 'concept' && selection.id === deleteTarget.id) setSelection({ kind: 'none' })
+      setDeleteTarget(null)
+      setNotice({ kind: 'success', text: t('state.saved') })
+      await scanPath(effectivePath)
+    } catch (error) {
+      setNotice({
+        kind: 'error',
+        text: saveFailureText(error, 'state.saveFailed', issuesOf(error)),
+        issues: issuesOf(error),
+      })
+    } finally {
+      setBusy(null)
+    }
+  }, [concepts, deleteTarget, effectivePath, notReady, scanPath, selection, vocabulary])
 
   const openAccept = useCallback((finding: DriftFinding) => {
     setAcceptTarget(finding)
@@ -436,6 +506,7 @@ export function SemanticPanel(props: PanelProps) {
           setEditorIssues([])
           setView({ kind: 'edit', concept })
         }}
+        onDelete={openDelete}
         onAccept={openAccept}
         onCopy={text => void copy(text)}
       />
@@ -455,16 +526,37 @@ export function SemanticPanel(props: PanelProps) {
           </div>
         </div>
         <span className="sd-spacer" />
+        <button
+          type="button"
+          className="sd-switch"
+          role="switch"
+          aria-checked={auto}
+          aria-label={t('auto.label')}
+          title={auto ? t('auto.onHint') : t('auto.offHint')}
+          onClick={toggleAuto}
+        >
+          <span className="sd-switch-track" data-on={auto}>
+            <span className="sd-switch-knob" />
+          </span>
+          {t('auto.label')}
+        </button>
         {(state?.workspaces.length ?? 0) > 0 && (
           <select
             className="sd-select"
             value={effectivePath ?? ''}
-            onChange={event => setRequested(event.target.value)}
-            title={t('workspace.label')}
+            onChange={event => selectWorkspace(event.target.value)}
+            title={auto ? t('auto.onHint') : t('auto.offHint')}
           >
             {(state?.workspaces ?? []).map(workspace => (
               <option key={workspace.path} value={workspace.path}>{workspace.title}</option>
             ))}
+            {/* A session may point at a sub-directory of a workspace, which is not
+              in the registry list; without this option the select would show blank. */}
+            {effectivePath !== undefined && !(state?.workspaces ?? []).some(workspace => workspace.path === effectivePath) && (
+              <option value={effectivePath}>
+                {effectivePath.split('/').filter(part => part !== '').at(-1)} · {t('auto.currentExtra')}
+              </option>
+            )}
           </select>
         )}
         <div className="sd-actions">
@@ -598,33 +690,35 @@ export function SemanticPanel(props: PanelProps) {
         </button>
       </footer>
 
+      {deleteTarget !== null && (
+        <div className="sd-dialog-backdrop" onClick={() => setDeleteTarget(null)}>
+          <div className="sd-dialog" onClick={event => event.stopPropagation()}>
+            <div className="sd-dialog-title">{t('delete.title')}</div>
+            <div className="sd-dialog-body">
+              <span className="sd-code">{deleteTarget.id}</span> · <span className="sd-code">{deleteTarget.canonical.symbol}</span>
+            </div>
+            <div className="sd-dialog-body">{t('delete.body')}</div>
+            <div className="sd-form-actions">
+              <button
+                type="button"
+                className="sd-button sd-button-danger"
+                onClick={() => void confirmDelete()}
+                disabled={busy === 'save'}
+              >
+                <TrashIcon />
+                {t('delete.confirm')}
+              </button>
+              <button type="button" className="sd-button" onClick={() => setDeleteTarget(null)} disabled={busy === 'save'}>
+                {t('action.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {acceptTarget !== null && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0,0,0,.28)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-          }}
-          onClick={() => setAcceptTarget(null)}
-        >
-          <div
-            style={{
-              width: 460,
-              maxWidth: '90%',
-              background: 'var(--dsw-alias-bg-overlay)',
-              border: '1px solid var(--dsw-alias-border-l2)',
-              borderRadius: 12,
-              padding: 18,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-            onClick={event => event.stopPropagation()}
-          >
+        <div className="sd-dialog-backdrop" onClick={() => setAcceptTarget(null)}>
+          <div className="sd-dialog" onClick={event => event.stopPropagation()}>
             <label className="sd-label" htmlFor="sd-accept-reason">{t('editor.acceptedReason')}</label>
             <div className="sd-hint">
               <span className="sd-code">{acceptTarget.symbol}</span> · {acceptTarget.path}:{acceptTarget.line}

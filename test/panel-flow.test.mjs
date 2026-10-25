@@ -92,7 +92,7 @@ async function flush(times = 6) {
   }
 }
 
-function mountPanel() {
+function mountPanel(props = {}) {
   const registrations = []
   clientModule.apply({
     slots: {
@@ -105,8 +105,14 @@ function mountPanel() {
   const container = window.document.getElementById('root')
   container.innerHTML = ''
   const root = createRoot(container)
-  reactAct(() => { root.render(createElement(panel.component, {})) })
-  return { container, root }
+  reactAct(() => { root.render(createElement(panel.component, props)) })
+  return {
+    container,
+    root,
+    rerender(next) {
+      reactAct(() => { root.render(createElement(panel.component, next)) })
+    },
+  }
 }
 
 function click(element) {
@@ -273,6 +279,109 @@ test('accepting an unclassified finding asks which concept and then calls the ho
     assert.equal(accepted[0].symbol, 'ModuleName')
     assert.equal(accepted[0].path, 'a/b.cs')
     assert.match(accepted[0].reason, /外部协议/)
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('the auto switch follows the session workspace and pins when switched off', async () => {
+  const realFetch = globalThis.fetch
+  const requested = []
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) {
+      const workspace = new URL(href, 'http://placeholder/').searchParams.get('workspace') ?? '/tmp/default'
+      requested.push(workspace)
+      return json({
+        ...STATE,
+        workspace: { path: workspace, title: workspace.split('/').at(-1), resolvedFrom: 'request' },
+      })
+    }
+    if (href.includes('/scan')) {
+      return json({
+        ok: true,
+        workspace: { path: '/tmp' },
+        summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 },
+        vocabularyIssues: [],
+      })
+    }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    let cwd = '/tmp/ws-a'
+    const props = () => ({ useSessions: selector => selector({ current: 's1', byId: { s1: { cwd } } }) })
+    const { container, root, rerender } = mountPanel(props())
+    await flush(8)
+    assert.ok(requested.includes('/tmp/ws-a'), `auto must open the session workspace; got ${requested.join(',')}`)
+
+    cwd = '/tmp/ws-b'
+    rerender(props())
+    await flush(8)
+    assert.ok(requested.includes('/tmp/ws-b'), 'auto must follow the session when it moves')
+
+    const toggle = container.querySelector('[role="switch"]')
+    assert.ok(toggle !== null, 'the auto switch must exist')
+    assert.equal(toggle.getAttribute('aria-checked'), 'true')
+    click(toggle)
+    await flush(4)
+    assert.equal(container.querySelector('[role="switch"]')?.getAttribute('aria-checked'), 'false')
+
+    cwd = '/tmp/ws-c'
+    rerender(props())
+    await flush(8)
+    assert.equal(requested.includes('/tmp/ws-c'), false, 'a pinned panel must not follow the session')
+    assert.ok(requested.at(-1)?.startsWith('/tmp/ws-b'), `the pinned workspace stays on screen; last was ${requested.at(-1)}`)
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('deleting a concept asks first, then saves the document without it', async () => {
+  const realFetch = globalThis.fetch
+  const saves = []
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    if (href.includes('/scan')) {
+      return json({
+        ok: true,
+        workspace: { path: '/tmp/yne20' },
+        summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 },
+        vocabularyIssues: [],
+      })
+    }
+    if (href.includes('/save')) {
+      saves.push(JSON.parse(String(init.body ?? '{}')))
+      return json({ ok: true, vocabulary: { ...STATE.vocabulary, document: { ...STATE.vocabulary.document, concepts: [] } } })
+    }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('device.module_name') === false && button.textContent?.includes('module_name'))
+    assert.ok(item !== undefined, 'the concept must be listed in the tree')
+    click(item)
+    await flush()
+
+    const remove = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '删除')
+    assert.ok(remove !== undefined, 'the concept must offer delete')
+    click(remove)
+    await flush()
+    assert.match(container.textContent ?? '', /删除这个概念/, 'delete must confirm first')
+    assert.equal(saves.length, 0, 'nothing is written before confirmation')
+
+    const confirm = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('删除概念'))
+    assert.ok(confirm !== undefined, 'the dialog must offer a confirm button')
+    click(confirm)
+    await flush(8)
+    assert.equal(saves.length, 1, 'confirming must save the document')
+    assert.equal(saves[0].document.concepts.length, 0, 'the deleted concept must be gone')
+    assert.match(container.textContent ?? '', /已保存/)
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
