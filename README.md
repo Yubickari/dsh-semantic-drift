@@ -1,6 +1,6 @@
 # dsh-semantic-drift
 
-**English** · [Chinese](README.zh.md)
+**English** · [简体中文](README.zh.md)
 
 One versioned vocabulary file, one read-only scanner, one panel: see where the
 same concept is spelled several ways across a codebase — and decide which
@@ -26,19 +26,20 @@ Sidebar: Semantics
 
 ## Contents
 
-- [What it solves](#what-it-solves)
-- [Install](#install)
-- [Quick start](#quick-start)
-- [The vocabulary file](#the-vocabulary-file)
-- [Detectors](#detectors)
-- [Agent tools](#agent-tools)
-- [Configuration](#configuration)
-- [Guarantees](#guarantees)
-- [Limitations, and where it is wrong](#limitations-and-where-it-is-wrong)
-- [Relationship to SchemaNode](#relationship-to-schemanode)
-- [Development](#development)
-- [Chinese documentation](README.zh.md)
-- [License](#license)
+- [dsh-semantic-drift](#dsh-semantic-drift)
+  - [Contents](#contents)
+  - [What it solves](#what-it-solves)
+  - [Install](#install)
+  - [Quick start](#quick-start)
+  - [The vocabulary file](#the-vocabulary-file)
+  - [Detectors](#detectors)
+  - [Agent tools](#agent-tools)
+  - [Configuration](#configuration)
+  - [Guarantees](#guarantees)
+  - [Limitations, and where it is wrong](#limitations-and-where-it-is-wrong)
+  - [Relationship to SchemaNode](#relationship-to-schemanode)
+  - [Development](#development)
+  - [License](#license)
 
 ## What it solves
 
