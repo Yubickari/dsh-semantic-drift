@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+A small release that exercises the automated pipeline (tag -> tests -> npm publish
+-> GitHub release). One user-visible change:
+
+- The settings dialog shows the plugin version next to the effective configuration,
+  so an update can be confirmed without scrolling to the footer.
+
 ## 0.1.1
 
 First public release.

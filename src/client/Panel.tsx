@@ -1224,6 +1224,13 @@ export function SemanticPanel(props: PanelProps) {
               <div className="sd-hint">{t('settings.projectHint')}</div>
               <div className="sd-setting-row">
                 <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.version')}</div>
+                  <div className="sd-setting-hint">{t('settings.versionHint')}</div>
+                </div>
+                <span className="sd-setting-value">{state?.version ?? '—'}</span>
+              </div>
+              <div className="sd-setting-row">
+                <div className="sd-setting-main">
                   <div className="sd-setting-name">{t('settings.announceToAgent')}</div>
                   <div className="sd-setting-hint">{t('settings.announceHint')}</div>
                 </div>
