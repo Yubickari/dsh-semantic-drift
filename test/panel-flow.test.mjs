@@ -1002,3 +1002,42 @@ test('the workspace mode is an icon that says which mode it is in', async () => 
     resetPrefs()
   }
 })
+
+test('the stale badge stays in the footer, is clickable and rescans', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  let scans = 0
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    if (href.includes('/scan')) { scans++; return json(scanResponse([CACHED_FINDING])) }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel({}, {
+      cache: [{ workspace: '/tmp/yne20', at: Date.now() - 30 * 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+    })
+    await flush(8)
+    const footer = container.querySelector('.sd-footer')
+    assert.ok(footer !== null)
+    assert.equal(
+      [...footer.querySelectorAll('button')].some(button => (button.textContent ?? '').includes('重新扫描')),
+      false,
+      'the footer must not repeat the toolbar scan button',
+    )
+    const badge = footer.querySelector('.sd-badge-warn')
+    assert.ok(badge !== null, 'a stale report needs a visible badge')
+    assert.equal(badge.getAttribute('role'), null)
+    assert.equal(badge.tagName, 'BUTTON', 'the badge itself must be the rescan control')
+    assert.match(badge.getAttribute('aria-label') ?? '', /点击重新扫描/)
+    click(badge)
+    await flush(8)
+    assert.equal(scans, 1, 'clicking the badge must scan')
+    assert.equal(container.querySelector('.sd-badge-warn'), null, 'a fresh report clears the badge')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})

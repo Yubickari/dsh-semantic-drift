@@ -397,11 +397,6 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [])
 
-  const refresh = useCallback(async () => {
-    if (effectivePath === undefined) return
-    await load(effectivePath)
-    await scanPath(effectivePath)
-  }, [effectivePath, load, scanPath])
 
   const createVocabulary = useCallback(async () => {
     if (effectivePath === undefined) {
@@ -1048,16 +1043,35 @@ export function SemanticPanel(props: PanelProps) {
             {t('footer.time')} {scan.summary.durationMs} ms
           </span>
         )}
-        {scanExpired && <span className="sd-warn">{t('footer.scanExpired')}</span>}
-        {scanVocabularyChanged && <span className="sd-warn">{t('footer.vocabularyChanged')}</span>}
+        {scanExpired && (
+          <button
+            type="button"
+            className="sd-badge-warn sd-tip-above"
+            data-tip={t('footer.scanExpiredHint')}
+            aria-label={t('footer.scanExpiredHint')}
+            onClick={() => void scanPath(effectivePath ?? '')}
+            disabled={busy !== null || effectivePath === undefined}
+          >
+            {t('footer.scanExpired')}
+          </button>
+        )}
+        {scanVocabularyChanged && (
+          <button
+            type="button"
+            className="sd-badge-warn sd-tip-above"
+            data-tip={t('footer.vocabularyChangedHint')}
+            aria-label={t('footer.vocabularyChangedHint')}
+            onClick={() => void scanPath(effectivePath ?? '')}
+            disabled={busy !== null || effectivePath === undefined}
+          >
+            {t('footer.vocabularyChanged')}
+          </button>
+        )}
         {scan?.summary.truncated === true && (
           <span title={scan.summary.truncatedReason ?? ''}>⚠ {t('footer.truncated')}</span>
         )}
         <span className="sd-spacer" />
         {state !== null && <span className="sd-meta">v{state.version}</span>}
-        <button type="button" className="sd-button sd-button-ghost" onClick={() => void refresh()} disabled={busy !== null}>
-          {t('action.rescan')}
-        </button>
       </footer>
 
       {settingsOpen && (

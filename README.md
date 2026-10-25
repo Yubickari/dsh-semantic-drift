@@ -126,9 +126,12 @@ Clicking it switches modes, exactly like the settings switch.
 Re-opening the panel does not throw the report away: the tab remembers the last
 scan per workspace for a configurable time (default 10 minutes), so coming back
 from another panel shows the same view instead of asking for a scan again. The
-footer dates it (`scanned 2 min ago`), marks it stale past the retention, and
-warns when the vocabulary file has changed since (its mtime no longer matches).
-Setting the retention to 0 turns the memory off.
+footer dates it (`scanned 2 min ago`). Past the retention it raises a filled amber
+badge — white text on a deepened accent, legible in both themes — and the same
+badge appears when the vocabulary file has changed since the scan (its mtime no
+longer matches). Both badges are the rescan control: click one and the workspace
+is scanned again, with the same hint on hover. Setting the retention to 0 turns
+the memory off.
 
 A selected concept carries **Edit** and **Delete** next to its title. Deleting
 removes the entry and every accepted exception it recorded from the vocabulary
@@ -140,7 +143,8 @@ list.
 The toolbar is icon-only — scan, new concept, raw YAML and settings — all with the
 same bordered button, and each icon describes itself immediately on hover (a
 styled tooltip, not the browser's delayed `title`) and to a screen reader. The sidebar entry is
-**Semantic Drift Vocabulary**, the same name as the panel title.
+**Semantic Drift Vocabulary**, the same name as the panel title. The toolbar holds
+the only scan button; the footer only reports.
 
 Re-opening the panel returns to the page it was left on: the selected concept (or
 the unclassified list) is remembered per workspace, in the browser, and restored
@@ -378,7 +382,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 94 tests, no test framework
+pnpm test          # typecheck + node --test, 95 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

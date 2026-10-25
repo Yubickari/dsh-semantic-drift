@@ -96,11 +96,10 @@ export const PANEL_CSS = `
 .sd-button-icon { position: relative; width: 28px; padding: 0; justify-content: center; }
 /* A native title tooltip waits a second and sometimes never shows; this one is
    immediate, styled, and shares the label the screen reader already gets. */
-.sd-button-icon[data-tip]::after {
+.sd-button-icon[data-tip]::after,
+.sd-tip-above[data-tip]::after {
   content: attr(data-tip);
   position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
   padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -112,19 +111,42 @@ export const PANEL_CSS = `
   white-space: nowrap;
   box-shadow: 0 4px 12px rgba(0, 0, 0, .18);
   opacity: 0;
-  transform: translateY(-2px);
   transition: opacity .1s ease .12s, transform .1s ease .12s;
   pointer-events: none;
   z-index: 30;
 }
+.sd-button-icon[data-tip]::after { top: calc(100% + 6px); right: 0; transform: translateY(-2px); }
+.sd-tip-above { position: relative; }
+.sd-tip-above[data-tip]::after { bottom: calc(100% + 6px); left: 0; transform: translateY(2px); }
 .sd-button-icon[data-tip]:hover::after,
-.sd-button-icon[data-tip]:focus-visible::after { opacity: 1; transform: translateY(0); }
+.sd-button-icon[data-tip]:focus-visible::after,
+.sd-tip-above[data-tip]:hover::after,
+.sd-tip-above[data-tip]:focus-visible::after { opacity: 1; transform: translateY(0); }
 .sd-button-icon:disabled[data-tip]::after { display: none; }
-.sd-spin { animation: sd-spin 1s linear infinite; }
-@keyframes sd-spin { to { transform: rotate(360deg); } }
-.sd-button-danger { color: var(--dsw-alias-state-error-primary); }
-.sd-button-danger:hover:not(:disabled) { border-color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); }
-.sd-mode-button[data-mode='pinned'] { color: var(--dsw-alias-brand-primary); }
+/* A stale report is a state the reader has to notice, so it gets a filled badge
+   rather than a coloured word. White on amber is only readable if the amber is
+   deep enough; the mix keeps the hue and darkens it for both themes, and the
+   plain token stays as the fallback where color-mix is unavailable. */
+.sd-badge-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  background: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 72%, #1f1300);
+  color: #fff;
+  cursor: pointer;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .25);
+}
+.sd-badge-warn:hover:not(:disabled) { filter: brightness(1.08); }
+.sd-badge-warn:focus-visible { outline: none; border-color: var(--dsw-alias-label-primary); }
+.sd-badge-warn:disabled { cursor: default; opacity: .75; }
 .sd-switch {
   display: inline-flex;
   align-items: center;
