@@ -4,13 +4,18 @@ on:
   push:
     tags: ['v*']
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: write      # create the GitHub release
-  id-token: write      # npm provenance
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Pin the runner: `ubuntu-latest` is migrating in 2026 and a surprise image
+    # change is the last thing a release should discover.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4          # version comes from packageManager
@@ -34,7 +39,27 @@ jobs:
       - run: pnpm build
       - name: The committed bundle matches the source
         run: git diff --exit-code -- lib
-      - run: npm publish --provenance --access public
+      - name: The npm token is configured
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::The NPM_TOKEN secret is empty. Add a granular npm token (read+write on this package) under Settings → Secrets and variables → Actions, then push the tag again."
+            exit 1
+          fi
+          npm whoami
+      # Provenance needs a public repository: GitHub signs the attestation against
+      # a source commit that anyone must be able to fetch. Add `--provenance` back
+      # once the repository is public.
+      - name: Publish to npm
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "dsh-semantic-drift@${version}" version >/dev/null 2>&1; then
+            echo "::notice::dsh-semantic-drift@${version} is already on npm; nothing to publish"
+            exit 0
+          fi
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: GitHub release

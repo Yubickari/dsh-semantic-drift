@@ -52,7 +52,8 @@
     "build": "node scripts/build.mjs",
     "test": "tsc --noEmit && node --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\"",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "node scripts/build.mjs && tsc --noEmit && node --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\""
+    "prepublishOnly": "node scripts/build.mjs && tsc --noEmit && node --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\"",
+    "release:check": "node scripts/preflight.mjs"
   },
   "keywords": [
     "dsh",
