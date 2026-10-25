@@ -96,7 +96,7 @@ export function ScopeSelect(props: ScopeSelectProps) {
           id="sd-scope-custom"
           className="sd-input sd-mono"
           value={props.value.custom}
-          placeholder="**/Common/LanguageProvider.cs"
+          placeholder="**/Common/SampleProvider.cs"
           onChange={event => props.onChange({ ...props.value, custom: event.target.value })}
           spellCheck={false}
         />

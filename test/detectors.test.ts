@@ -159,17 +159,17 @@ test('without a vocabulary no alias is reported', async () => {
 
 test('a canonical spelling that exists nowhere but in another case is reported', async () => {
   const root = await workspace({
-    'A/Channel.cs': 'namespace A\n{\n    public class ChannelNum\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
-    'B/Channel.cs': 'namespace B\n{\n    public class ChannelNum\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
+    'A/Channel.cs': 'namespace A\n{\n    public class SensorRate\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
+    'B/Channel.cs': 'namespace B\n{\n    public class SensorRate\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
   })
   const summary = await scan(root, [
-    { id: 'archit.channel_num', terms: ['通道数'], kind: 'quantity', canonical: { symbol: 'ChannelNUm' } },
+    { id: 'sensor.sensor_rate', terms: ['采样率'], kind: 'quantity', canonical: { symbol: 'SensorRATE' } },
   ])
   const finding = summary.findings.find(entry => entry.detail.rule === 'canonical-case')
   assert.ok(finding !== undefined, 'a canonical that appears nowhere must be reported')
-  assert.equal(finding.symbol, 'ChannelNum')
-  assert.equal(finding.expected, 'ChannelNUm')
-  assert.equal(finding.conceptId, 'archit.channel_num')
+  assert.equal(finding.symbol, 'SensorRate')
+  assert.equal(finding.expected, 'SensorRATE')
+  assert.equal(finding.conceptId, 'sensor.sensor_rate')
   assert.equal(finding.detail.sites, 2)
   assert.equal(summary.findings.filter(entry => entry.detail.rule === 'canonical-case').length, 1, 'one finding per concept')
 })
@@ -241,11 +241,11 @@ test('two private nested helpers with the same short name are not contract drift
 
 test('identical members declared as different kinds say so', async () => {
   const root = await workspace({
-    'Debug/Params.cs': 'namespace Debug\n{\n    public struct Params_PMT\n    {\n        public int Mode { get; set; }\n        public int Value { get; set; }\n    }\n}\n',
-    'Sys/Params.cs': 'namespace Sys\n{\n    public class Params_PMT\n    {\n        public int Mode { get; set; }\n        public int Value { get; set; }\n    }\n}\n',
+    'Debug/Params.cs': 'namespace Debug\n{\n    public struct TempOptions\n    {\n        public int Mode { get; set; }\n        public int Value { get; set; }\n    }\n}\n',
+    'Sys/Params.cs': 'namespace Sys\n{\n    public class TempOptions\n    {\n        public int Mode { get; set; }\n        public int Value { get; set; }\n    }\n}\n',
   })
   const summary = await scan(root)
-  const finding = summary.findings.find(entry => entry.symbol === 'Params_PMT' && entry.detail.rule === 'identical-members')
+  const finding = summary.findings.find(entry => entry.symbol === 'TempOptions' && entry.detail.rule === 'identical-members')
   assert.ok(finding !== undefined)
   assert.deepEqual(finding.detail.kinds, ['struct', 'class'])
   assert.match(finding.message, /as a struct there and a class here/)
@@ -275,14 +275,14 @@ test('the parse cache never hides an edited file', async () => {
 
 test('a canonical used only as the head of other names is still reported', async () => {
   const root = await workspace({
-    'A/ChannelService.cs': 'namespace A\n{\n    public sealed class ChannelNumService\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n\n    public sealed class ChannelNumChangedEventArgs\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
+    'A/ChannelService.cs': 'namespace A\n{\n    public sealed class SensorRateService\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n\n    public sealed class SensorRateChangedEventArgs\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
   })
   const summary = await scan(root, [
-    { id: 'archit.channel_num', terms: ['通道数'], kind: 'quantity', canonical: { symbol: 'ChannelNUm' } },
+    { id: 'sensor.sensor_rate', terms: ['采样率'], kind: 'quantity', canonical: { symbol: 'SensorRATE' } },
   ])
   const finding = summary.findings.find(entry => entry.detail.rule === 'canonical-case')
   assert.ok(finding !== undefined, 'the spelling never appears, but its prefix does')
-  assert.equal(finding.symbol, 'ChannelNumService')
-  assert.match(finding.message, /ChannelNumChangedEventArgs/)
+  assert.equal(finding.symbol, 'SensorRateService')
+  assert.match(finding.message, /SensorRateChangedEventArgs/)
   assert.equal(finding.detail.sites, 2)
 })

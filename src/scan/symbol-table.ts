@@ -87,7 +87,7 @@ export interface TypeDeclaration {
   bases?: string[]
   /**
    * Single-line literal initializers per member name, e.g.
-   * `ModuleName => "YNE20.Algorithm"` -> `{ ModuleName: ['YNE20.Algorithm'] }`.
+   * `ModuleName => "App.Algorithm"` -> `{ ModuleName: ['App.Algorithm'] }`.
    * Only simple literals are recorded; anything else stays absent, which keeps
    * the comparison on the conservative path.
    */

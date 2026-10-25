@@ -257,7 +257,7 @@ same bytes. Hand edits in the raw editor keep their own formatting.
 | | high | *same names, different values*: no shared base, so the two sides simply disagree about what those names mean |
 | `contract-drift` | high | the same type in two units with different members, or with different **values** for the same members. Skipped when one type shadows its own base (the "missing" members are inherited) or when both are private nested helpers — a local name, not a boundary |
 | `symbol-variant` | medium | a spelling variant of `canonical.symbol` (case/separator form, a known confusable, edit distance ≤ 2), or *same contract, other name*: a type with the same base, member set and stable literal as the canonical type |
-| | medium | *vocabulary spelling is not in the code*: `canonical.symbol` appears nowhere as a code token while a different-case spelling is declared or heads a declaration (`ChannelNUm` recorded, the code writes `ChannelNum…`) |
+| | medium | *vocabulary spelling is not in the code*: `canonical.symbol` appears nowhere as a code token while a different-case spelling is declared or heads a declaration (`SensorRATE` recorded, the code writes `SensorRate…`) |
 | `term-unmapped` | low | a declared term appears in comments or resources, but the canonical symbol never appears in code |
 
 Member **values** are compared too, when they are simple single-line literals. That

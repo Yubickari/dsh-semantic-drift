@@ -8,14 +8,14 @@ const CONCEPT_ID = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
 
 function finding(overrides: Partial<DriftFinding> = {}): DriftFinding {
   return {
-    id: 'duplicate-type:YNE20Debug/Foo/Enums.cs:NetworkStatus:12',
+    id: 'duplicate-type:Sample2Debug/Foo/Enums.cs:NetworkStatus:12',
     detector: 'duplicate-type',
     confidence: 'high',
-    path: 'YNE20Debug/Foo/Enums.cs',
+    path: 'Sample2Debug/Foo/Enums.cs',
     line: 12,
     symbol: 'NetworkStatus',
     message: 'example',
-    citation: 'YNE20Debug/Foo/Enums.cs::NetworkStatus',
+    citation: 'Sample2Debug/Foo/Enums.cs::NetworkStatus',
     detail: {},
     ...overrides,
   }
@@ -28,7 +28,7 @@ function concept(id: string, symbol: string): Concept {
 test('snakeCase turns type names into id segments', () => {
   assert.equal(snakeCase('NetworkStatus'), 'network_status')
   assert.equal(snakeCase('TEC_TargetTemp'), 'tec_target_temp')
-  assert.equal(snakeCase('YNE20Debug'), 'yne20_debug')
+  assert.equal(snakeCase('Sample2Debug'), 'sample2_debug')
   assert.equal(snakeCase('__Foo__'), 'foo')
   assert.equal(snakeCase('A'), 'a')
   assert.equal(snakeCase('---'), '')
@@ -36,7 +36,7 @@ test('snakeCase turns type names into id segments', () => {
 
 test('a promoted finding suggests a valid concept id', () => {
   const id = suggestConceptId(finding(), [])
-  assert.equal(id, 'yne20_debug.network_status')
+  assert.equal(id, 'sample2_debug.network_status')
   assert.match(id, CONCEPT_ID)
 })
 
@@ -47,8 +47,8 @@ test('a numeric-leading folder or symbol still yields a valid id', () => {
 })
 
 test('a taken id is suffixed until it is free', () => {
-  const existing = [concept('yne20_debug.network_status', 'A'), concept('yne20_debug.network_status_2', 'B')]
-  assert.equal(suggestConceptId(finding(), existing), 'yne20_debug.network_status_3')
+  const existing = [concept('sample2_debug.network_status', 'A'), concept('sample2_debug.network_status_2', 'B')]
+  assert.equal(suggestConceptId(finding(), existing), 'sample2_debug.network_status_3')
 })
 
 test('accept defaults to the finding concept, then the matching symbol, then the first', () => {

@@ -39,16 +39,16 @@ await build({
 const ui = await import(outfile)
 
 const concept = {
-  id: 'archit.channel_num',
-  terms: ['通道数'],
+  id: 'sensor.sensor_rate',
+  terms: ['采样率'],
   kind: 'entity',
-  canonical: { symbol: 'ChannelNUm', type: 'int' },
-  note: '设备通道数',
+  canonical: { symbol: 'SensorRATE', type: 'int' },
+  note: '设备采样率',
 }
 
 const duplicateIssue = {
   code: 'symbol-duplicate',
-  message: 'Canonical symbol `ChannelNUm` is already used by `concepts[2]`; one symbol can name only one concept.',
+  message: 'Canonical symbol `SensorRATE` is already used by `concepts[2]`; one symbol can name only one concept.',
   severity: 'error',
   path: 'concepts[4].canonical.symbol',
   line: 21,
@@ -105,8 +105,8 @@ test('accepted exceptions offer edit and remove, and a clear action when plural'
 test('the concept editor shows a duplicate-symbol issue, localized and verbatim', () => {
   const html = render(createElement(ui.ConceptEditor, {
     concept: undefined,
-    initialId: 'archit.channel_num_2',
-    initialSymbol: 'ChannelNUm',
+    initialId: 'sensor.sensor_rate_2',
+    initialSymbol: 'SensorRATE',
     issues: [duplicateIssue],
     saving: false,
     onSave: () => undefined,
@@ -116,7 +116,7 @@ test('the concept editor shows a duplicate-symbol issue, localized and verbatim'
   assert.match(html, /already used by/, 'the host sentence carries the concrete characters')
   assert.match(html, /concepts\[4\]\.canonical\.symbol/, 'the document path must be shown')
   assert.match(html, /line 21/, 'the line must be shown')
-  assert.match(html, /ChannelNUm/)
+  assert.match(html, /SensorRATE/)
 })
 
 test('the editor renders no issue block when the save had no issues', () => {
@@ -128,7 +128,7 @@ test('the editor renders no issue block when the save had no issues', () => {
     onCancel: () => undefined,
   }))
   assert.doesNotMatch(html, /sd-issues/)
-  assert.match(html, /archit\.channel_num/)
+  assert.match(html, /sensor\.sensor_rate/)
 })
 
 test('the notice puts the close control last, aligns it, and lists issues', () => {
@@ -155,12 +155,12 @@ test('a failed load offers a retry control', () => {
 test('the tree has a header add button and one per group', () => {
   const html = render(createElement(ui.ConceptTree, {
     concepts: [concept, { ...concept, id: 'device.state', canonical: { symbol: 'DeviceState' } }],
-    selectedId: 'archit.channel_num',
+    selectedId: 'sensor.sensor_rate',
     query: '',
     onQuery: () => undefined,
     filter: 'all',
     onFilter: () => undefined,
-    driftCounts: new Map([['archit.channel_num', 3]]),
+    driftCounts: new Map([['sensor.sensor_rate', 3]]),
     unclassified: 4,
     showUnclassified: true,
     onSelect: () => undefined,
@@ -198,28 +198,28 @@ test('a derived copy and a renamed contract get their own labels', () => {
     findings: [{
       ...base,
       detector: 'symbol-variant',
-      expected: 'LanguageProvider',
-      detail: { rule: 'contract-alias', base: 'ResourceProviderBase', members: ['ModuleName'], literals: { BaseFileName: ['Language'] } },
+      expected: 'ProfileProvider',
+      detail: { rule: 'contract-alias', base: 'BaseProvider', members: ['ModuleName'], literals: { BaseFileName: ['Language'] } },
     }],
     onAccept: () => undefined,
     onCopy: () => undefined,
     showLow: true,
   }))
   assert.match(alias, /同一契约另一种命名/)
-  assert.match(alias, /LanguageProvider/)
+  assert.match(alias, /ProfileProvider/)
 })
 
 test('a finding row names its detector, confidence and actions', () => {
   const finding = {
-    id: 'duplicate-type:a/b.cs:ChannelNUm:3',
+    id: 'duplicate-type:a/b.cs:SensorRATE:3',
     detector: 'duplicate-type',
     confidence: 'high',
     path: 'a/b.cs',
     line: 3,
-    symbol: 'ChannelNUm',
+    symbol: 'SensorRATE',
     message: 'example',
-    citation: 'a/b.cs::ChannelNUm',
-    detail: { primaryPath: 'a/c.cs', primaryLine: 7, members: ['ChannelNum', 'Model'] },
+    citation: 'a/b.cs::SensorRATE',
+    detail: { primaryPath: 'a/c.cs', primaryLine: 7, members: ['SensorRate', 'Model'] },
   }
   const html = render(createElement(ui.DriftList, {
     findings: [finding],

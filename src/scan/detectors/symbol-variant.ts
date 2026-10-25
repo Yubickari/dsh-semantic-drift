@@ -192,8 +192,8 @@ export function createSymbolVariantDetector(): Detector {
     },
     finish(ctx: DetectorContext): DriftFinding[] {
       const findings = [...pending]
-      // A contract can be renamed without being misspelled: `ResourceProvider`
-      // and `LanguageProvider` share a base, a member set and the stable constant
+      // A contract can be renamed without being misspelled: `ConfigProvider`
+      // and `ProfileProvider` share a base, a member set and the stable constant
       // that identifies the resource kind. Spelling rules cannot see that, and the
       // vocabulary is the only place that says which name is canonical.
       const byName = new Map<string, typeof ctx.types>()
@@ -250,8 +250,8 @@ export function createSymbolVariantDetector(): Detector {
       // A canonical spelling that appears nowhere while a case-only variant is
       // everywhere is the most dangerous kind of drift: the vocabulary is wrong
       // and every rule that compares spellings stays silent. The variant may be a
-      // whole declaration (`ChannelNum`) or the leading token of one
-      // (`ChannelNumService`), so both are accepted.
+      // whole declaration (`SensorRate`) or the leading token of one
+      // (`SensorRateService`), so both are accepted.
       for (const concept of ctx.concepts) {
         const canonical = concept.canonical.symbol
         if (canonical.length < 3) continue
@@ -266,8 +266,8 @@ export function createSymbolVariantDetector(): Detector {
           : [...byName.entries()].filter(([name]) =>
               name.length > canonical.length
               && name.slice(0, canonical.length).toLowerCase() === lower
-              // A camel-case or underscore boundary, so `ChannelNumber` (a
-              // different word) is not taken for `ChannelNum`.
+              // A camel-case or underscore boundary, so `SensorRating` (a
+              // different word) is not taken for `SensorRate`.
               && /[A-Z_$]/.test(name.charAt(canonical.length)))
         const sample = exact[0] ?? prefixed[0]
         if (sample === undefined) continue

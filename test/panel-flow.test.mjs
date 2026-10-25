@@ -44,14 +44,14 @@ const CONCEPT = {
 
 const STATE = {
   ok: true,
-  workspace: { path: '/tmp/yne20', title: 'YNE20', resolvedFrom: 'request' },
-  workspaces: [{ id: 'w1', title: 'YNE20', path: '/tmp/yne20' }],
+  workspace: { path: '/tmp/sample-app', title: 'SampleApp', resolvedFrom: 'request' },
+  workspaces: [{ id: 'w1', title: 'SampleApp', path: '/tmp/sample-app' }],
   vocabulary: {
-    file: '/tmp/yne20/.dsh/semantics.yaml',
+    file: '/tmp/sample-app/.dsh/semantics.yaml',
     relativeFile: '.dsh/semantics.yaml',
     exists: true,
     text: 'version: 1\n',
-    document: { version: 1, meta: { project: 'YNE20' }, exclude: ['**/node_modules/**'], concepts: [CONCEPT] },
+    document: { version: 1, meta: { project: 'SampleApp' }, exclude: ['**/node_modules/**'], concepts: [CONCEPT] },
     issues: [],
     valid: true,
     mtimeMs: 1,
@@ -82,7 +82,7 @@ globalThis.fetch = async (url, init = {}) => {
     headers: { 'content-type': 'application/json' },
   })
   if (String(url).includes('/state')) return json(STATE)
-  if (String(url).includes('/scan')) return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp/yne20', startedAt: 0 }, vocabularyIssues: [] })
+  if (String(url).includes('/scan')) return json({ ok: true, workspace: { path: '/tmp/sample-app' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp/sample-app', startedAt: 0 }, vocabularyIssues: [] })
   if (String(url).includes('/save')) return json(DUPLICATE, 400)
   return json({ ok: false, code: 'unexpected', message: 'not stubbed' }, 500)
 }
@@ -182,7 +182,7 @@ test('a duplicate canonical symbol shows up as a visible refusal', async () => {
   click(newButton)
   await flush()
 
-  type('#sd-id', 'archit.module_name')
+  type('#sd-id', 'device.module_name')
   type('#sd-terms', '模块名称')
   type('#sd-symbol', 'ModuleName')
 
@@ -235,7 +235,7 @@ test('a successful save dismisses the form and reports at the bottom', async () 
     if (String(url).includes('/save')) {
       return new Response(JSON.stringify({ ok: true, vocabulary: STATE.vocabulary }), { status: 200, headers: { 'content-type': 'application/json' } })
     }
-    return new Response(JSON.stringify({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    return new Response(JSON.stringify({ ok: true, workspace: { path: '/tmp/sample-app' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   try {
     const { container, root } = mountPanel()
@@ -243,7 +243,7 @@ test('a successful save dismisses the form and reports at the bottom', async () 
     const newButton = byLabel(container, '新建概念')
     click(newButton)
     await flush()
-    type('#sd-id', 'archit.new_thing')
+    type('#sd-id', 'device.new_thing')
     type('#sd-terms', '新东西')
     type('#sd-symbol', 'NewThing')
     const saveButton = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
@@ -277,7 +277,7 @@ test('accepting an unclassified finding asks which concept and then calls the ho
     const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
     if (String(url).includes('/state')) return json(STATE)
     if (String(url).includes('/scan')) {
-      return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [finding], counts: { 'duplicate-type': 1 }, filesScanned: 1, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp/yne20', startedAt: 0 }, vocabularyIssues: [] })
+      return json({ ok: true, workspace: { path: '/tmp/sample-app' }, summary: { findings: [finding], counts: { 'duplicate-type': 1 }, filesScanned: 1, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp/sample-app', startedAt: 0 }, vocabularyIssues: [] })
     }
     if (String(url).includes('/accept')) {
       accepted.push(JSON.parse(String(init.body ?? '{}')))
@@ -392,7 +392,7 @@ test('deleting a concept asks first, then saves the document without it', async 
     if (href.includes('/scan')) {
       return json({
         ok: true,
-        workspace: { path: '/tmp/yne20' },
+        workspace: { path: '/tmp/sample-app' },
         summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 },
         vocabularyIssues: [],
       })
@@ -451,7 +451,7 @@ test('accepting one site can mute the whole file-name family', async () => {
     const href = String(url)
     if (href.includes('/state')) return json(STATE)
     if (href.includes('/scan')) {
-      return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings, counts: { 'duplicate-type': 3 }, filesScanned: 3, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
+      return json({ ok: true, workspace: { path: '/tmp/sample-app' }, summary: { findings, counts: { 'duplicate-type': 3 }, filesScanned: 3, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
     }
     if (href.includes('/accept')) {
       accepted.push(JSON.parse(String(init.body ?? '{}')))
@@ -502,7 +502,7 @@ test('a success notice closes itself after the configured seconds', async () => 
     const href = String(url)
     if (href.includes('/state')) return json(STATE)
     if (href.includes('/save')) return json({ ok: true, vocabulary: STATE.vocabulary })
-    return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
+    return json({ ok: true, workspace: { path: '/tmp/sample-app' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
   }
   try {
     const { container, root } = mountPanel()
@@ -510,7 +510,7 @@ test('a success notice closes itself after the configured seconds', async () => 
     const newButton = byLabel(container, '新建概念')
     click(newButton)
     await flush()
-    type('#sd-id', 'archit.auto_close')
+    type('#sd-id', 'device.auto_close')
     type('#sd-terms', '自动关闭')
     type('#sd-symbol', 'AutoClose')
     const save = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
@@ -547,7 +547,7 @@ test('an accepted exception can be narrowed, removed and undone', async () => {
     id: 'duplicate-type:a/b.cs:ModuleName:3',
     detector: 'duplicate-type',
     confidence: 'high',
-    path: 'Alpha/Common/ResourceProvider.cs',
+    path: 'Alpha/Common/SampleProvider.cs',
     line: 3,
     symbol: 'ModuleName',
     message: 'example',
@@ -560,7 +560,7 @@ test('an accepted exception can be narrowed, removed and undone', async () => {
     const href = String(url)
     if (href.includes('/state')) return json(state)
     if (href.includes('/scan')) {
-      return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [finding], counts: { 'duplicate-type': 1 }, filesScanned: 1, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
+      return json({ ok: true, workspace: { path: '/tmp/sample-app' }, summary: { findings: [finding], counts: { 'duplicate-type': 1 }, filesScanned: 1, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
     }
     if (href.includes('/accept')) {
       const body = JSON.parse(String(init.body ?? '{}'))
@@ -664,7 +664,7 @@ test('a concept shows how many findings its exception mutes, even after the resc
       // After acceptance the scan withholds the finding and says who muted it.
       return json({
         ok: true,
-        workspace: { path: '/tmp/yne20' },
+        workspace: { path: '/tmp/sample-app' },
         summary: {
           findings: [],
           counts: {},
@@ -775,9 +775,9 @@ test('opening the panel never scans, and the child switch controls rescan-on-fol
 function scanResponse(findings = []) {
   return {
     ok: true,
-    workspace: { path: '/tmp/yne20' },
+    workspace: { path: '/tmp/sample-app' },
     summary: {
-      root: '/tmp/yne20',
+      root: '/tmp/sample-app',
       startedAt: 0,
       durationMs: 12,
       filesScanned: 9,
@@ -817,7 +817,7 @@ test('a remembered report is shown on entry without scanning', async () => {
   }
   try {
     const { container, root } = mountPanel({}, {
-      cache: [{ workspace: '/tmp/yne20', at: Date.now() - 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+      cache: [{ workspace: '/tmp/sample-app', at: Date.now() - 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
     })
     await flush(8)
     const text = container.textContent ?? ''
@@ -849,7 +849,7 @@ test('an expired report is shown but labelled, still without scanning', async ()
   }
   try {
     const { container, root } = mountPanel({}, {
-      cache: [{ workspace: '/tmp/yne20', at: Date.now() - 20 * 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+      cache: [{ workspace: '/tmp/sample-app', at: Date.now() - 20 * 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
     })
     await flush(8)
     const text = container.textContent ?? ''
@@ -874,7 +874,7 @@ test('a changed vocabulary file is flagged on a restored report', async () => {
   try {
     const { container, root } = mountPanel({}, {
       // STATE.vocabulary.mtimeMs is 1, so a different recorded mtime means "changed".
-      cache: [{ workspace: '/tmp/yne20', at: Date.now(), mtimeMs: 999, response: scanResponse([CACHED_FINDING]) }],
+      cache: [{ workspace: '/tmp/sample-app', at: Date.now(), mtimeMs: 999, response: scanResponse([CACHED_FINDING]) }],
     })
     await flush(8)
     assert.match(container.textContent ?? '', /词表已更新/, 'the report must say the vocabulary moved on')
@@ -896,7 +896,7 @@ test('retention 0 disables the memory entirely', async () => {
   }
   try {
     const { container, root } = mountPanel({}, {
-      cache: [{ workspace: '/tmp/yne20', at: Date.now(), mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+      cache: [{ workspace: '/tmp/sample-app', at: Date.now(), mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
     })
     await flush(8)
     assert.match(container.textContent ?? '', /尚未扫描/, 'with retention 0 the panel must ask for a scan')
@@ -1016,7 +1016,7 @@ test('the stale badge stays in the footer, is clickable and rescans', async () =
   }
   try {
     const { container, root } = mountPanel({}, {
-      cache: [{ workspace: '/tmp/yne20', at: Date.now() - 30 * 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+      cache: [{ workspace: '/tmp/sample-app', at: Date.now() - 30 * 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
     })
     await flush(8)
     const footer = container.querySelector('.sd-footer')
