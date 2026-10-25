@@ -59,6 +59,17 @@ const STATE = {
   citationStyle: 'file+symbol',
   minConfidence: 'medium',
   version: '0.1.0',
+  effective: {
+    vocabularyPath: '.dsh/semantics.yaml',
+    announceToAgent: true,
+    citationStyle: 'file+symbol',
+    minConfidence: 'medium',
+    timeoutMs: 30000,
+    maxFindings: 5000,
+    maxFileBytes: 1048576,
+    maxFiles: 50000,
+    detectors: ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'],
+  },
 }
 
 const DUPLICATE = {
@@ -740,7 +751,7 @@ test('opening the panel never scans, and the child switch controls rescan-on-fol
     openSettings(container)
     await flush(2)
     const switches = [...container.querySelectorAll('[role="switch"]')]
-    assert.equal(switches.length, 3, 'follow, rescan and low-confidence')
+    assert.equal(switches.length, 4, 'follow, rescan, low-confidence and prompt injection')
     const rescanSwitch = switches[1]
     assert.equal(rescanSwitch.getAttribute('aria-checked'), 'false', 'rescan-on-follow is off by default')
     click(rescanSwitch)
@@ -1035,6 +1046,41 @@ test('the stale badge stays in the footer, is clickable and rescans', async () =
     await flush(8)
     assert.equal(scans, 1, 'clicking the badge must scan')
     assert.equal(container.querySelector('.sd-badge-warn'), null, 'a fresh report clears the badge')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('the panel can turn prompt injection off from its own settings', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const calls = []
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/settings')) {
+      const body = JSON.parse(String(init.body ?? '{}'))
+      calls.push(body)
+      return json({ ...STATE, effective: { ...STATE.effective, announceToAgent: body.announceToAgent } })
+    }
+    if (href.includes('/state')) return json(STATE)
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    openSettings(container)
+    await flush(2)
+    const knob = container.querySelector('[aria-label="注入 Agent 提示"]')
+    assert.ok(knob !== null, 'the project section must expose the injection switch')
+    assert.equal(knob.getAttribute('aria-checked'), 'true')
+    click(knob)
+    await flush(10)
+    assert.deepEqual(calls, [{ workspace: '/tmp/sample-app', announceToAgent: false }])
+    assert.match(container.textContent ?? '', /插件设置已保存/)
+    assert.equal(container.querySelector('[aria-label="注入 Agent 提示"]')?.getAttribute('aria-checked'), 'false')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch

@@ -21,7 +21,7 @@ import type {
   ValidationIssue,
   WriteResponse,
 } from '../protocol.ts'
-import { acceptException, ApiError, fetchState, initVocabulary, runScan, saveDocument, saveRaw } from './api.ts'
+import { acceptException, ApiError, fetchState, initVocabulary, runScan, saveDocument, saveRaw, updateSettings } from './api.ts'
 import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
 import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
@@ -155,6 +155,8 @@ export function SemanticPanel(props: PanelProps) {
   const [filter, setFilter] = useState<'all' | 'drift' | 'clean'>('all')
   const [showLow, setShowLow] = useState(preferences.showLow)
   const [scanRetentionMinutes, setScanRetentionMinutes] = useState(preferences.scanRetentionMinutes)
+  /** True while the prompt-injection setting is being written back to the plugin row. */
+  const [announceSaving, setAnnounceSaving] = useState(false)
   /** When the displayed report was produced, for the age label. */
   const [scanAt, setScanAt] = useState<number | null>(null)
   /** Vocabulary mtime when it was produced, for the "file changed" badge. */
@@ -601,6 +603,43 @@ export function SemanticPanel(props: PanelProps) {
       .filter(entry => entry.symbol === target.symbol && (entry.path ?? '') === (target.path ?? ''))
       .length
   }, [])
+
+  /**
+   * Turn the prompt section on or off.
+   *
+   * This is a plugin-row setting, not a browser preference: it changes what the
+   * Host injects into every agent prompt, so it has to go through the Host. The
+   * row reloads while the request is in flight; when that eats the response, the
+   * panel re-reads `/state` to show what actually took effect.
+   */
+  const toggleAnnounce = useCallback(async () => {
+    const effective = state?.effective
+    if (effectivePath === undefined || effective === undefined || announceSaving) return
+    setAnnounceSaving(true)
+    try {
+      const next = await updateSettings(effectivePath, { announceToAgent: !effective.announceToAgent })
+      setState(next)
+      setNotice({ kind: 'success', text: t('state.settingsSaved') })
+    } catch (error) {
+      try {
+        const fresh = await fetchState(effectivePath)
+        setState(fresh)
+        if ((fresh.effective?.announceToAgent ?? effective.announceToAgent) !== effective.announceToAgent) {
+          setNotice({ kind: 'success', text: t('state.settingsSaved') })
+          return
+        }
+      } catch {
+        // Fall through to the error notice.
+      }
+      setNotice({
+        kind: 'error',
+        text: saveFailureText(error, 'state.settingsFailed', issuesOf(error)),
+        issues: issuesOf(error),
+      })
+    } finally {
+      setAnnounceSaving(false)
+    }
+  }, [announceSaving, effectivePath, state])
 
   const openExceptionEdit = useCallback((concept: Concept, index: number) => {
     const exception = concept.accepted?.[index]
@@ -1183,13 +1222,31 @@ export function SemanticPanel(props: PanelProps) {
             <div className="sd-settings-section">
               <div className="sd-settings-title">{t('settings.project')}</div>
               <div className="sd-hint">{t('settings.projectHint')}</div>
+              <div className="sd-setting-row">
+                <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.announceToAgent')}</div>
+                  <div className="sd-setting-hint">{t('settings.announceHint')}</div>
+                </div>
+                <button
+                  type="button"
+                  className="sd-switch"
+                  role="switch"
+                  aria-checked={state?.effective?.announceToAgent === true}
+                  aria-label={t('settings.announceToAgent')}
+                  disabled={state?.effective === undefined || announceSaving || busy !== null}
+                  onClick={() => void toggleAnnounce()}
+                >
+                  <span className="sd-switch-track" data-on={state?.effective?.announceToAgent === true}>
+                    <span className="sd-switch-knob" />
+                  </span>
+                </button>
+              </div>
               {(() => {
                 const effective = state?.effective
                 const rows: Array<[string, string]> = effective === undefined
                   ? []
                   : [
                       [t('settings.vocabularyPath'), effective.vocabularyPath],
-                      [t('settings.announceToAgent'), effective.announceToAgent ? t('settings.on') : t('settings.off')],
                       [t('settings.citationStyle'), effective.citationStyle],
                       [t('settings.minConfidence'), effective.minConfidence],
                       [t('settings.budgets'), `${effective.timeoutMs} ms · ${effective.maxFindings} · ${Math.round(effective.maxFileBytes / 1024)} KB · ${effective.maxFiles}`],

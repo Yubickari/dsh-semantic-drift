@@ -19,9 +19,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Config } from './config.ts'
 import { PROMPT_SECTION, PROMPT_SECTION_ORDER, buildPromptText } from './prompt.ts'
-import { PACKAGE_NAME } from './protocol.ts'
+import { PACKAGE_NAME, ROW_ID } from './protocol.ts'
 import { makeSemanticRoutes } from './routes.ts'
-import { createSemanticService } from './service.ts'
+import { SemanticError, createSemanticService } from './service.ts'
 import type { SemanticConfig } from './service.ts'
 import { buildSemanticTools } from './tools.ts'
 import { createWorkspaceResolver } from './workspace.ts'
@@ -145,6 +145,55 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
     }
   })()
 
+  /**
+   * The config editor is probed, not injected: a Host without one still gets
+   * tools, routes and the prompt, and only the panel's injection switch is
+   * unavailable (it says where to edit the setting instead).
+   */
+  interface LoaderEntry {
+    id?: string
+    patchId?: string
+    name?: string
+  }
+  interface ConfigEditorLike {
+    entries(): LoaderEntry[]
+    configuration?(): Array<{ entry: LoaderEntry }>
+    edit(
+      entry: unknown,
+      change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+    ): Promise<void>
+  }
+  /** Same-address test for the row this bundle inserts: its name, or its patch id. */
+  const isOurEntry = (entry: LoaderEntry | undefined): boolean => {
+    if (entry === undefined) return false
+    if (entry.name === PACKAGE_NAME || entry.patchId === ROW_ID || entry.id === ROW_ID) return true
+    return typeof entry.id === 'string' && entry.id.endsWith(`:${ROW_ID}`)
+  }
+
+  const editPluginConfig = async (patch: Record<string, unknown>): Promise<void> => {
+    // Resolved per call, not at mount: an optional service can appear after this
+    // row activates, and a captured `undefined` would never recover.
+    let editor: ConfigEditorLike | undefined
+    try {
+      editor = context.get('configEditor') as ConfigEditorLike | undefined
+    } catch {
+      editor = undefined
+    }
+    if (editor === undefined) {
+      throw new SemanticError('unsupported', 'This Host exposes no config editor; edit the plugin row under Settings → Plugins.')
+    }
+    const withConfig = editor.configuration?.() ?? []
+    const entry = withConfig.map(item => item.entry).find(isOurEntry) ?? editor.entries().find(isOurEntry)
+    if (entry === undefined) {
+      const seen = (editor.entries() ?? []).map(candidate => candidate.name ?? candidate.id).slice(0, 6)
+      throw new SemanticError(
+        'unsupported',
+        `${PACKAGE_NAME} is not a Loader entry in this profile (saw: ${seen.join(', ') || 'none'}); edit it under Settings → Plugins.`,
+      )
+    }
+    await editor.edit(entry, current => ({ ...current, ...patch }))
+  }
+
   if (webServer !== undefined) {
     context.effect(() => {
       const disposers: Array<() => void> = []
@@ -159,7 +208,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
           tools: health.tools,
           routes: health.routes,
           promptSection: health.prompt,
-        }))) disposers.push(webServer.register(route))
+        }), { editConfig: editPluginConfig })) disposers.push(webServer.register(route))
       } catch (error) {
         for (const dispose of disposers) {
           try {

@@ -39,12 +39,13 @@ async function fixture(): Promise<string> {
   return root
 }
 
-function mount(root: string): Harness {
+function mount(root: string, extra: Record<string, unknown> = {}): Harness {
   const tools: Array<Record<string, unknown>> = []
   const routes: Array<Record<string, unknown>> = []
   const sections: Array<Record<string, unknown>> = []
   const cleanups: Array<() => void> = []
   const services: Record<string, unknown> = {
+    ...extra,
     webServer: { register: (route: Record<string, unknown>) => { routes.push(route); return () => undefined } },
     workspaceRegistry: {
       list: () => [{ id: 'w1', title: 'fixture', path: root, sessionIds: [] }],
@@ -64,7 +65,7 @@ function mount(root: string): Harness {
   return { ctx, root, tools, routes, sections, dispose: () => { for (const cleanup of cleanups.reverse()) cleanup() } }
 }
 
-test('the built host mounts five tools, seven routes and one prompt section', async () => {
+test('the built host mounts five tools, eight routes and one prompt section', async () => {
   const module = await import('../lib/index.js')
   const root = await fixture()
   const harness = mount(root)
@@ -89,6 +90,7 @@ test('the built host mounts five tools, seven routes and one prompt section', as
       '/semantic-drift/raw',
       '/semantic-drift/save',
       '/semantic-drift/scan',
+      '/semantic-drift/settings',
       '/semantic-drift/state',
     ],
   )
@@ -252,7 +254,7 @@ test('the health route reports what the activation mounted', async () => {
   const health = JSON.parse(body) as Record<string, unknown>
   assert.equal(health.ok, true)
   assert.equal(health.tools, 5)
-  assert.equal(health.routes, 7)
+  assert.equal(health.routes, 8)
   assert.equal(health.promptSection, true)
   assert.equal(health.announceToAgent, true)
   harness.dispose()
@@ -290,5 +292,46 @@ test('a vocabulary that cannot be parsed is reported as invalid, not as empty', 
   const text = (harness.sections[0].text as () => string)()
   assert.match(text, /cannot be parsed/)
   assert.doesNotMatch(text, /No concept is recorded yet/, 'an unparsable file is not an empty vocabulary')
+  harness.dispose()
+})
+
+test('the injection switch is written back through the Host config editor', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const edits: Array<{ entry: unknown; next: Record<string, unknown> }> = []
+  const configEditor = {
+    entries: () => [{ id: 'include:semantic-drift', name: 'dsh-semantic-drift' }],
+    edit: async (entry: unknown, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>) => {
+      edits.push({ entry, next: change({ vocabularyPath: '.dsh/semantics.yaml', announceToAgent: true }, {}) })
+    },
+  }
+  const harness = mount(root, { configEditor })
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+
+  const refused = await callRoute(route, 'POST', { announceToAgent: 'yes' })
+  assert.equal(refused.status, 400)
+
+  const applied = await callRoute(route, 'POST', { workspace: root, announceToAgent: false })
+  assert.equal(applied.status, 200)
+  assert.equal(edits.length, 1)
+  const next = edits[0].next
+  assert.equal(next.announceToAgent, false)
+  assert.equal(next.vocabularyPath, '.dsh/semantics.yaml', 'the rest of the row config must survive the patch')
+  const state = applied.json as Record<string, unknown>
+  assert.equal(state.ok, true)
+  assert.ok(state.effective !== undefined, 'the answer carries the state, not a bare acknowledgement')
+  harness.dispose()
+})
+
+test('without a config editor the switch is refused with a pointer to the settings form', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+  const refused = await callRoute(route, 'POST', { workspace: root, announceToAgent: false })
+  assert.equal(refused.status, 501)
+  assert.match(String(refused.json.message), /Settings → Plugins/)
   harness.dispose()
 })

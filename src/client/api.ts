@@ -94,6 +94,19 @@ export async function initVocabulary(workspace: string): Promise<WriteResponse> 
 }
 
 /** Record an accepted exception. */
+/**
+ * Persist one plugin-row setting through the Host's config editor.
+ *
+ * The row reloads as part of the write, so the returned state is a best-effort
+ * refresh: the panel reconciles with `/state` if the response is lost.
+ */
+export async function updateSettings(workspace: string, settings: { announceToAgent: boolean }): Promise<StateResponse> {
+  return await call<StateResponse>('settings', {
+    method: 'POST',
+    body: JSON.stringify({ workspace, ...settings }),
+  })
+}
+
 export async function acceptException(request: AcceptRequest): Promise<WriteResponse> {
   return await call<WriteResponse>('accept', { method: 'POST', body: JSON.stringify(request) })
 }

@@ -142,9 +142,20 @@ function writeWorkspace(value: unknown): string {
  * @param service - the shared host service.
  * @param diagnostics - what this activation mounted, for the health route.
  */
+/** Host callbacks a route needs beyond the service. */
+export interface SemanticRouteHooks {
+  /**
+   * Persist a plugin-row config patch through the Host's config editor.
+   * Absent when the Host exposes none, in which case the setting is refused
+   * with a pointer to DSH's own plugin settings form.
+   */
+  editConfig?(patch: Record<string, unknown>): Promise<void>
+}
+
 export function makeSemanticRoutes(
   service: SemanticService,
   diagnostics: () => Record<string, unknown> = () => ({}),
+  hooks: SemanticRouteHooks = {},
 ): WebRoute[] {
   const healthRoute: WebRoute = {
     kind: 'exact',
@@ -254,6 +265,37 @@ export function makeSemanticRoutes(
     },
   }
 
+  const settings: WebRoute = {
+    kind: 'exact',
+    path: `${API_PREFIX}/settings`,
+    handler: async (req, res) => {
+      try {
+        if (req.method !== 'POST') return writeJson(res, 405, failure('method-not-allowed', 'Use POST.'))
+        if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
+        const body = await readJson(req, 4 * 1_024)
+        const announce = body.announceToAgent
+        if (typeof announce !== 'boolean') {
+          throw new SemanticError('bad-request', '`announceToAgent` must be a boolean.')
+        }
+        if (hooks.editConfig === undefined) {
+          throw new SemanticError(
+            'unsupported',
+            'This Host exposes no config editor; edit the plugin row under Settings → Plugins.',
+          )
+        }
+        await hooks.editConfig({ announceToAgent: announce })
+        const workspace = optionalString(body.workspace)
+        // The row may reload while this request is in flight, so the caller is
+        // expected to reconcile by re-reading state; when it can be answered in
+        // the same instance, the fresh state is returned directly.
+        if (workspace === undefined) return writeJson(res, 200, { ok: true, announceToAgent: announce })
+        writeJson(res, 200, await service.state(workspace))
+      } catch (error) {
+        sendFailure(res, error)
+      }
+    },
+  }
+
   const accept: WebRoute = {
     kind: 'exact',
     path: `${API_PREFIX}/accept`,
@@ -305,5 +347,5 @@ export function makeSemanticRoutes(
     },
   }
 
-  return [healthRoute, state, scan, save, raw, init, accept]
+  return [healthRoute, settings, state, scan, save, raw, init, accept]
 }

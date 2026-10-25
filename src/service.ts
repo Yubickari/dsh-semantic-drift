@@ -457,6 +457,7 @@ export function statusForError(error: unknown): number {
   if (error instanceof SemanticError) {
     if (error.code === 'not-found') return 404
     if (error.code === 'invalid-vocabulary' || error.code === 'bad-request') return 400
+    if (error.code === 'unsupported') return 501
     return 400
   }
   return 500

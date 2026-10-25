@@ -12,6 +12,9 @@
 /** npm package name; also the browser module id the client artifact registers. */
 export const PACKAGE_NAME = 'dsh-semantic-drift'
 
+/** Loader row id this bundle inserts (see `cordis.patch.yml`). */
+export const ROW_ID = 'semantic-drift'
+
 /** Sidebar row id, main-slot key and the client's local-storage namespace. */
 export const PANEL_ID = 'semantic-drift'
 
