@@ -21,9 +21,11 @@ const { window } = dom
 for (const key of [
   'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement',
   'HTMLSelectElement', 'Event', 'MouseEvent', 'KeyboardEvent', 'Node', 'getComputedStyle',
-  // The bundle reads `globalThis.localStorage` (the browser realm has no
-  // separate global object), so the harness exposes it explicitly.
+  // The bundle reads `globalThis.localStorage` / `globalThis.sessionStorage`
+  // (the browser realm has no separate global object), so the harness exposes
+  // jsdom's stores instead of whatever Node happens to provide.
   'localStorage',
+  'sessionStorage',
 ]) {
   Object.defineProperty(globalThis, key, { value: window[key], configurable: true })
 }
@@ -95,7 +97,12 @@ async function flush(times = 6) {
   }
 }
 
-function mountPanel(props = {}) {
+/** Preload the panel's scan cache; every mount starts from an empty one. */
+function mountPanel(props = {}, options = {}) {
+  window.sessionStorage.removeItem('dsh-semantic-drift:scan-cache')
+  if (options.cache !== undefined) {
+    window.sessionStorage.setItem('dsh-semantic-drift:scan-cache', JSON.stringify(options.cache))
+  }
   const registrations = []
   clientModule.apply({
     slots: {
@@ -750,6 +757,142 @@ test('opening the panel never scans, and the child switch controls rescan-on-fol
     const childAfter = container.querySelectorAll('[role="switch"]')[1]
     assert.equal(childAfter.getAttribute('aria-checked'), 'false')
     assert.equal(childAfter.hasAttribute('disabled'), true, 'the child switch is not available without following')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+/** A scan response shaped like the host's, for cache fixtures. */
+function scanResponse(findings = []) {
+  return {
+    ok: true,
+    workspace: { path: '/tmp/yne20' },
+    summary: {
+      root: '/tmp/yne20',
+      startedAt: 0,
+      durationMs: 12,
+      filesScanned: 9,
+      filesSkipped: 0,
+      bytesScanned: 100,
+      truncated: false,
+      findings,
+      counts: {},
+      skippedTypes: 0,
+    },
+    vocabularyIssues: [],
+  }
+}
+
+const CACHED_FINDING = {
+  id: 'duplicate-type:a/Common/Provider.cs:ModuleName:3',
+  detector: 'duplicate-type',
+  confidence: 'high',
+  path: 'Alpha/Common/Provider.cs',
+  line: 3,
+  symbol: 'ModuleName',
+  message: 'example',
+  citation: 'a/Common/Provider.cs::ModuleName',
+  detail: { rule: 'derived-copy', members: ['A', 'B'] },
+}
+
+test('a remembered report is shown on entry without scanning', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  let scans = 0
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    if (href.includes('/scan')) { scans++; return json(scanResponse()) }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel({}, {
+      cache: [{ workspace: '/tmp/yne20', at: Date.now() - 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+    })
+    await flush(8)
+    const text = container.textContent ?? ''
+    assert.equal(scans, 0, 'a restored report must not trigger a scan')
+    assert.match(text, /扫描于 1 分钟前/, `the footer must date the report; got: ${text.slice(-260)}`)
+    assert.doesNotMatch(text, /尚未扫描/)
+    const unclassified = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('未归类'))
+    assert.ok(unclassified !== undefined)
+    click(unclassified)
+    await flush(2)
+    assert.match(container.textContent ?? '', /ModuleName/, 'the remembered findings must be listed')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('an expired report is shown but labelled, still without scanning', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  let scans = 0
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    if (href.includes('/scan')) { scans++; return json(scanResponse()) }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel({}, {
+      cache: [{ workspace: '/tmp/yne20', at: Date.now() - 20 * 60_000, mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+    })
+    await flush(8)
+    const text = container.textContent ?? ''
+    assert.equal(scans, 0)
+    assert.match(text, /结果已过期/, 'an old report must say so')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('a changed vocabulary file is flagged on a restored report', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    return json(scanResponse())
+  }
+  try {
+    const { container, root } = mountPanel({}, {
+      // STATE.vocabulary.mtimeMs is 1, so a different recorded mtime means "changed".
+      cache: [{ workspace: '/tmp/yne20', at: Date.now(), mtimeMs: 999, response: scanResponse([CACHED_FINDING]) }],
+    })
+    await flush(8)
+    assert.match(container.textContent ?? '', /词表已更新/, 'the report must say the vocabulary moved on')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('retention 0 disables the memory entirely', async () => {
+  resetPrefs({ auto: true, autoScan: false, notificationSeconds: 3, showLow: false, scanRetentionMinutes: 0 })
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    return json(scanResponse())
+  }
+  try {
+    const { container, root } = mountPanel({}, {
+      cache: [{ workspace: '/tmp/yne20', at: Date.now(), mtimeMs: 1, response: scanResponse([CACHED_FINDING]) }],
+    })
+    await flush(8)
+    assert.match(container.textContent ?? '', /尚未扫描/, 'with retention 0 the panel must ask for a scan')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch

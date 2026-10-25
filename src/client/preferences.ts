@@ -28,13 +28,15 @@ export interface PanelPreferences {
   notificationSeconds: number
   /** Whether low-confidence findings are listed. */
   showLow: boolean
+  /** Minutes a scan report is reused when the panel is re-opened; 0 = never. */
+  scanRetentionMinutes: number
 }
 
 /** Defaults: follow the workspace, no pin yet. */
 export function defaultPreferences(): PanelPreferences {
   // Following is on, rescanning on a switch is off: entering the panel must not
   // start work on its own.
-  return { auto: true, autoScan: false, notificationSeconds: 3, showLow: false }
+  return { auto: true, autoScan: false, notificationSeconds: 3, showLow: false, scanRetentionMinutes: 10 }
 }
 
 /** Read the stored preferences, falling back to the defaults. */
@@ -54,6 +56,9 @@ export function loadPreferences(): PanelPreferences {
       ...(typeof record.workspace === 'string' && record.workspace !== '' ? { workspace: record.workspace } : {}),
       notificationSeconds: seconds,
       showLow: record.showLow === true,
+      scanRetentionMinutes: typeof record.scanRetentionMinutes === 'number' && Number.isFinite(record.scanRetentionMinutes)
+        ? Math.max(0, Math.min(1_440, Math.round(record.scanRetentionMinutes)))
+        : 10,
     }
   } catch {
     return defaultPreferences()

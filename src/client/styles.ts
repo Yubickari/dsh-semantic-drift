@@ -397,6 +397,7 @@ export const PANEL_CSS = `
 .sd-raw { display: flex; flex-direction: column; gap: 10px; height: 100%; }
 .sd-raw .sd-textarea { flex: 1; min-height: 340px; }
 .sd-muted { color: var(--dsw-alias-label-secondary); }
+.sd-warn { color: var(--dsw-alias-state-warn-primary); }
 .sd-dialog {
   width: 460px;
   max-width: 90%;

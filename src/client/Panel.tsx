@@ -27,6 +27,7 @@ import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
 import { Notice } from './Notice.tsx'
 import { loadPreferences, savePreferences } from './preferences.ts'
+import { recallScan, rememberScan } from './scan-cache.ts'
 import { matchesGlob } from '../glob.ts'
 import { ScopeSelect, coveredBy, scopeFromPath, scopePathFor } from './ScopeSelect.tsx'
 import type { ScopeValue } from './ScopeSelect.tsx'
@@ -53,6 +54,16 @@ type View =
   | { kind: 'browse' }
   | { kind: 'edit'; concept: Concept | undefined; initialId?: string; initialSymbol?: string }
   | { kind: 'raw' }
+
+/** Human age of a scan report, in the active language. */
+function ageText(ageMs: number): string {
+  const minutes = Math.floor(ageMs / 60_000)
+  if (minutes < 1) return t('age.now')
+  if (minutes < 60) return tf('age.minutes', { count: minutes })
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return tf('age.hours', { count: hours })
+  return tf('age.days', { count: Math.floor(hours / 24) })
+}
 
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -142,6 +153,11 @@ export function SemanticPanel(props: PanelProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'drift' | 'clean'>('all')
   const [showLow, setShowLow] = useState(preferences.showLow)
+  const [scanRetentionMinutes, setScanRetentionMinutes] = useState(preferences.scanRetentionMinutes)
+  /** When the displayed report was produced, for the age label. */
+  const [scanAt, setScanAt] = useState<number | null>(null)
+  /** Vocabulary mtime when it was produced, for the "file changed" badge. */
+  const [scanMtime, setScanMtime] = useState<number | undefined>(undefined)
   const [busy, setBusy] = useState<'load' | 'scan' | 'save' | 'accept' | 'init' | null>(null)
   const [notice, setNotice] = useState<NoticeValue | null>(null)
   const [editorIssues, setEditorIssues] = useState<readonly ValidationIssue[]>([])
@@ -175,20 +191,43 @@ export function SemanticPanel(props: PanelProps) {
     setNotice({ kind: 'error', text: t('state.notReady') })
   }, [])
 
-  const scanPath = useCallback(async (path: string) => {
+  /** Latest vocabulary mtime, readable from a callback without recreating it. */
+  const vocabularyMtimeRef = useRef<number | undefined>(undefined)
+  const scanRetentionRef = useRef(scanRetentionMinutes)
+  useEffect(() => {
+    vocabularyMtimeRef.current = state?.vocabulary.mtimeMs
+  }, [state?.vocabulary.mtimeMs])
+  useEffect(() => {
+    scanRetentionRef.current = scanRetentionMinutes
+  }, [scanRetentionMinutes])
+
+  const scanPath = useCallback(async (path: string): Promise<ScanResponse | undefined> => {
     if (path === '') {
       notReady()
-      return
+      return undefined
     }
     setBusy('scan')
     try {
-      setScan(await runScan(path))
+      const result = await runScan(path)
+      const at = Date.now()
+      setScan(result)
+      setScanAt(at)
+      setScanMtime(vocabularyMtimeRef.current)
+      rememberScan({
+        workspace: path,
+        response: result,
+        retentionMinutes: scanRetentionRef.current,
+        ...(vocabularyMtimeRef.current === undefined ? {} : { mtimeMs: vocabularyMtimeRef.current }),
+        now: at,
+      })
+      return result
     } catch (error) {
       setNotice({ kind: 'error', text: errorText(error, 'state.scanFailed'), issues: issuesOf(error) })
+      return undefined
     } finally {
       setBusy(null)
     }
-  }, [])
+  }, [notReady])
 
   // Auto: follow whatever the session currently points at. Pinned: stay on the
   // workspace the user last picked, even when the session moves elsewhere.
@@ -205,8 +244,9 @@ export function SemanticPanel(props: PanelProps) {
       ...(pinned === undefined ? {} : { workspace: pinned }),
       notificationSeconds,
       showLow,
+      scanRetentionMinutes,
     })
-  }, [auto, autoScan, pinned, notificationSeconds, showLow])
+  }, [auto, autoScan, pinned, notificationSeconds, showLow, scanRetentionMinutes])
 
   // A success notice closes itself after the configured delay; an error that
   // carries validation issues never does, because that is the text the user has
@@ -236,9 +276,26 @@ export function SemanticPanel(props: PanelProps) {
     if (previous === undefined) return
     if (previous === effectivePath) return
     setScan(null)
+    setScanAt(null)
+    setScanMtime(undefined)
     if (!auto || !autoScan) return
     void scanPath(effectivePath)
   }, [auto, autoScan, effectivePath, scanPath])
+
+  /**
+   * Re-opening the panel, or coming back to a workspace, restores the report this
+   * tab already has instead of forcing another scan. Entering the panel is not a
+   * reason to run work; it is a reason to show what was already computed.
+   */
+  useEffect(() => {
+    if (effectivePath === undefined) return
+    if (scan !== null) return
+    const recalled = recallScan({ workspace: effectivePath, retentionMinutes: scanRetentionMinutes })
+    if (recalled === undefined) return
+    setScan(recalled.response)
+    setScanAt(recalled.at)
+    setScanMtime(recalled.mtimeMs)
+  }, [effectivePath, scan, scanRetentionMinutes])
 
   const vocabulary = state?.vocabulary
   const concepts = vocabulary?.document.concepts ?? []
@@ -246,6 +303,14 @@ export function SemanticPanel(props: PanelProps) {
   const mutedFindings = useMemo(() => scan?.summary.mutedFindings ?? [], [scan])
   /** Everything the scan knows about, including what an exception suppressed. */
   const allFindings = useMemo(() => [...findings, ...mutedFindings], [findings, mutedFindings])
+
+  const scanAgeMs = scanAt === null ? undefined : Math.max(0, Date.now() - scanAt)
+  const scanExpired = scanAgeMs !== undefined && scanRetentionMinutes > 0
+    && scanAgeMs > scanRetentionMinutes * 60_000
+  const scanVocabularyChanged = scan !== null
+    && scanMtime !== undefined
+    && state?.vocabulary.mtimeMs !== undefined
+    && scanMtime !== state.vocabulary.mtimeMs
 
   /**
    * How many findings one accepted exception mutes. The visible list cannot
@@ -784,6 +849,15 @@ export function SemanticPanel(props: PanelProps) {
             )}
           </select>
         )}
+        <button
+          type="button"
+          className="sd-chip"
+          data-active={!auto}
+          title={auto ? t('auto.onHint') : t('auto.offHint')}
+          onClick={toggleAuto}
+        >
+          {auto ? t('header.following') : t('header.pinned')}
+        </button>
         <div className="sd-actions">
           <button
             type="button"
@@ -931,11 +1005,16 @@ export function SemanticPanel(props: PanelProps) {
             {t('footer.files')} {scan.summary.filesScanned}
           </span>
         )}
+        {scan !== null && scanAgeMs !== undefined && (
+          <span>{tf('footer.scannedAgo', { age: ageText(scanAgeMs) })}</span>
+        )}
         {scan !== null && (
-          <span>
+          <span className="sd-muted">
             {t('footer.time')} {scan.summary.durationMs} ms
           </span>
         )}
+        {scanExpired && <span className="sd-warn">{t('footer.scanExpired')}</span>}
+        {scanVocabularyChanged && <span className="sd-warn">{t('footer.vocabularyChanged')}</span>}
         {scan?.summary.truncated === true && (
           <span title={scan.summary.truncatedReason ?? ''}>⚠ {t('footer.truncated')}</span>
         )}
@@ -991,6 +1070,26 @@ export function SemanticPanel(props: PanelProps) {
                     <span className="sd-switch-knob" />
                   </span>
                 </button>
+              </div>
+              <div className="sd-setting-row">
+                <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.scanRetention')}</div>
+                  <div className="sd-setting-hint">{t('settings.scanRetentionHint')}</div>
+                </div>
+                <input
+                  className="sd-number"
+                  type="number"
+                  min={0}
+                  max={1440}
+                  step={1}
+                  value={scanRetentionMinutes}
+                  aria-label={t('settings.scanRetention')}
+                  onChange={event => {
+                    const next = Number(event.target.value)
+                    setScanRetentionMinutes(Number.isFinite(next) ? Math.max(0, Math.min(1_440, Math.round(next))) : 10)
+                  }}
+                />
+                <span className="sd-hint">{t('settings.minutes')}</span>
               </div>
               <div className="sd-setting-row">
                 <div className="sd-setting-main">

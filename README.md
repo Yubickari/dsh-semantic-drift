@@ -119,6 +119,13 @@ are consequences of an action you just took.
 A workspace that has not been scanned says so — both above the body and in the
 footer — with a Scan button, instead of looking like a workspace with no drift.
 
+Re-opening the panel does not throw the report away: the tab remembers the last
+scan per workspace for a configurable time (default 10 minutes), so coming back
+from another panel shows the same view instead of asking for a scan again. The
+footer dates it (`scanned 2 min ago`), marks it stale past the retention, and
+warns when the vocabulary file has changed since (its mtime no longer matches).
+Setting the retention to 0 turns the memory off.
+
 A selected concept carries **Edit** and **Delete** next to its title. Deleting
 removes the entry and every accepted exception it recorded from the vocabulary
 file; no code is touched, and findings only it covered return to the unclassified
@@ -131,6 +138,8 @@ The gear at the top right opens the panel's own settings:
 - **Follow the workspace** — the switch described above.
 - **Rescan automatically** — its child switch; disabled until following is on,
   and it only rescans when following switches workspace.
+- **Keep scan results for N minutes** — how long a report is reused when the panel
+  is re-opened; 0 disables the memory, so every entry needs a manual scan.
 - **Notifications close after N seconds** — `0` keeps them until dismissed.
   Notices that carry validation issues never close themselves; they are the text
   you have to act on.
@@ -298,6 +307,12 @@ configuration UI. Changing a setting reloads the plugin row.
   says which one did.
 * **Workspace-scoped.** A request can only read and write inside a registered
   DSH workspace (or the Host's default directory); anything else is refused.
+* **One deliberate exception to "compute on demand":** the browser keeps the last
+  scan per workspace in `sessionStorage` for a bounded time, only to render the
+  panel again without rescanning. It never enters the repository, a closed tab
+  forgets it, and the agent tools never read it — a tool call always scans. The
+  footer dates the report and marks it stale, and the vocabulary mtime is
+  compared so an edited vocabulary shows a warning instead of a silent lie.
 * **Diagnosable.** `GET /semantic-drift/health` reports what this activation
   mounted — tool count, route count, whether the prompt section is registered —
   plus the effective settings, so a half-mounted plugin is visible instead of
@@ -349,7 +364,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 80 tests, no test framework
+pnpm test          # typecheck + node --test, 91 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 
