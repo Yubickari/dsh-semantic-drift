@@ -33,6 +33,7 @@ Sidebar: Semantics
   - [Quick start](#quick-start)
     - [Following the workspace](#following-the-workspace)
     - [Panel settings](#panel-settings)
+    - [Editing an accepted exception](#editing-an-accepted-exception)
     - [The unclassified list](#the-unclassified-list)
   - [The vocabulary file](#the-vocabulary-file)
   - [Detectors](#detectors)
@@ -132,6 +133,24 @@ The gear at the top right opens the panel's own settings:
 Every item shown here is a per-browser preference: it never enters
 `.dsh/semantics.yaml` and never changes the repository.
 
+### Editing an accepted exception
+
+An accepted exception is a record, not a stamp: each row in the concept detail
+carries **Edit** and **Remove**, and the section header offers **Clear all** when a
+concept has more than one.
+
+- **Edit** reopens the scope picker with the current glob selected and shows how
+  many findings the new scope would mute next to the current count, so a glob
+  that was too wide can be narrowed without guessing. The reason is editable; the
+  symbol is not, because it is the observed spelling — remove and re-accept to
+  change it.
+- **Remove** names the finding count that will reappear and asks for confirmation.
+  The success notice then offers **Undo**, which re-adds the exception as it was.
+- **Clear all** removes every exception of a concept after a confirmation that
+  states the count; undo restores the whole set.
+- An operation loads the file again inside the store before writing, so it applies
+  to what is on disk rather than to the snapshot the browser held.
+
 ### The unclassified list
 
 The tree's **unclassified** row lists findings that no vocabulary concept owns.
@@ -225,7 +244,7 @@ Five tools, available in every session, sharing the panel's validation:
 | `semantic_get` | one concept by id or symbol, plus its accepted exceptions; `includeDrift` adds a scan |
 | `semantic_upsert` | create or update a concept (`merge` keeps omitted fields, `replace` rebuilds it) |
 | `drift_scan` | structured findings with detector, confidence and citation |
-| `semantic_accept` | record an accepted exception; `reason` is required |
+| `semantic_accept` | manage accepted exceptions: `add` (default), `update` its scope or reason, `remove` one, or `clear` a concept; `reason` is required to add or update |
 
 Every refusal is a value (`{ ok: false, code, message }`), never an exception, and
 `drift_scan` is documented as read-only. Renaming a data field without calling

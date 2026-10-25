@@ -503,3 +503,105 @@ test('a success notice closes itself after the configured seconds', async () => 
     resetPrefs()
   }
 })
+
+test('an accepted exception can be narrowed, removed and undone', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const state = {
+    ...STATE,
+    vocabulary: {
+      ...STATE.vocabulary,
+      document: {
+        ...STATE.vocabulary.document,
+        concepts: [{
+          ...STATE.vocabulary.document.concepts[0],
+          accepted: [{ symbol: 'ModuleName', path: '**', reason: 'old reason' }],
+        }],
+      },
+    },
+  }
+  const finding = {
+    id: 'duplicate-type:a/b.cs:ModuleName:3',
+    detector: 'duplicate-type',
+    confidence: 'high',
+    path: 'Alpha/Common/ResourceProvider.cs',
+    line: 3,
+    symbol: 'ModuleName',
+    message: 'example',
+    citation: 'a/b.cs::ModuleName',
+    detail: { rule: 'derived-copy', members: ['A', 'B'] },
+  }
+  const calls = []
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/state')) return json(state)
+    if (href.includes('/scan')) {
+      return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [finding], counts: { 'duplicate-type': 1 }, filesScanned: 1, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
+    }
+    if (href.includes('/accept')) {
+      const body = JSON.parse(String(init.body ?? '{}'))
+      calls.push(body)
+      return json({ ok: true, changed: body.op ?? 'added', vocabulary: state.vocabulary, concept: state.vocabulary.document.concepts[0] })
+    }
+    return json({ ok: true, vocabulary: state.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('module_name'))
+    assert.ok(item !== undefined, 'the concept must be in the tree')
+    click(item)
+    await flush(2)
+
+    const edit = container.querySelector('[aria-label^="编辑 ModuleName"]')
+    assert.ok(edit !== null, 'the exception row must offer edit')
+    click(edit)
+    await flush(2)
+    assert.match(container.textContent ?? '', /编辑例外/)
+    assert.match(container.textContent ?? '', /符号是观察到的写法/)
+
+    // Narrow the glob through the custom scope.
+    const customRadio = [...container.querySelectorAll('.sd-scope-option input[type="radio"]')].at(-1)
+    assert.ok(customRadio !== undefined)
+    click(customRadio)
+    await flush(1)
+    assert.ok(container.querySelector('#sd-scope-custom') !== null, 'the custom scope needs a glob field')
+    type('#sd-scope-custom', '**/Common/**')
+    type('#sd-exception-reason', 'only the Common copies')
+    const save = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
+    click(save)
+    await flush(8)
+    const update = calls.find(call => call.op === 'update')
+    assert.ok(update !== undefined, `an update call must be sent; got ${JSON.stringify(calls)}`)
+    assert.equal(update.previousPath, '**')
+    assert.equal(update.path, '**/Common/**')
+    assert.equal(update.reason, 'only the Common copies')
+    assert.match(container.textContent ?? '', /例外已更新/)
+
+    // Remove it, then undo from the notice.
+    const remove = container.querySelector('[aria-label^="移除 ModuleName"]')
+    assert.ok(remove !== null)
+    click(remove)
+    await flush(2)
+    assert.match(container.textContent ?? '', /移除这条例外/)
+    const confirm = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '移除')
+    click(confirm)
+    await flush(8)
+    assert.ok(calls.some(call => call.op === 'remove'), 'the removal must be sent')
+    assert.match(container.textContent ?? '', /重新出现/)
+
+    const undo = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '撤销')
+    assert.ok(undo !== undefined, 'the notice must offer undo')
+    click(undo)
+    await flush(8)
+    const restore = calls.filter(call => (call.op ?? 'add') === 'add').at(-1)
+    assert.equal(restore?.symbol, 'ModuleName')
+    assert.equal(restore?.path, '**')
+    assert.equal(restore?.reason, 'old reason')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})

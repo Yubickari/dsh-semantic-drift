@@ -64,7 +64,7 @@ function mount(root: string): Harness {
   return { ctx, root, tools, routes, sections, dispose: () => { for (const cleanup of cleanups.reverse()) cleanup() } }
 }
 
-test('the built host mounts five tools, six routes and one prompt section', async () => {
+test('the built host mounts five tools, seven routes and one prompt section', async () => {
   const module = await import('../lib/index.js')
   const root = await fixture()
   const harness = mount(root)
@@ -141,6 +141,71 @@ test('tools round-trip through the mounted host: upsert, scan, accept, list', as
 
   const written = await readFile(join(root, '.dsh', 'semantics.yaml'), 'utf8')
   assert.match(written, /reason: the enum is owned outside this repository/)
+  harness.dispose()
+})
+
+/** Drive one HTTP route with a JSON body, the way the web shell would. */
+async function callRoute(
+  route: Record<string, unknown>,
+  method: string,
+  body?: unknown,
+): Promise<{ status: number; json: Record<string, unknown> }> {
+  const handler = route.handler as (req: unknown, res: unknown) => Promise<void> | void
+  const listeners: Record<string, Array<(value?: unknown) => void>> = { data: [], end: [], error: [] }
+  const req = {
+    method,
+    headers: { 'content-type': 'application/json' },
+    on(event: string, callback: (value?: unknown) => void) {
+      ;(listeners[event] ??= []).push(callback)
+      return req
+    },
+    destroy() {
+      // nothing to tear down in the fake
+    },
+  }
+  const payload = body === undefined ? '' : JSON.stringify(body)
+  setTimeout(() => {
+    for (const callback of listeners.data ?? []) callback(Buffer.from(payload))
+    for (const callback of listeners.end ?? []) callback()
+  }, 0)
+  let status = 0
+  let text = ''
+  await handler(req, {
+    writeHead(code: number) { status = code },
+    end(chunk: string) { text = chunk },
+  })
+  await new Promise(resolve => setTimeout(resolve, 5))
+  return { status, json: text === '' ? {} : JSON.parse(text) as Record<string, unknown> }
+}
+
+test('the accept route dispatches the exception ops and rejects an unknown one', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/accept') as Record<string, unknown>
+
+  const unknown = await callRoute(route, 'POST', { op: 'explode', conceptId: 'device.state' })
+  assert.equal(unknown.status, 400)
+  assert.equal(unknown.json.code, 'bad-request')
+
+  const missingSymbol = await callRoute(route, 'POST', { conceptId: 'device.state' })
+  assert.equal(missingSymbol.status, 400, 'no op defaults to add, which needs a symbol')
+
+  const missingReason = await callRoute(route, 'POST', {
+    op: 'update',
+    conceptId: 'device.state',
+    symbol: 'DeviceState',
+    previousPath: '**',
+  })
+  assert.equal(missingReason.status, 400)
+
+  const noConcept = await callRoute(route, 'POST', {
+    conceptId: 'device.absent',
+    symbol: 'DeviceState',
+    reason: 'r',
+  })
+  assert.equal(noConcept.status, 404, 'dispatch must reach the service, which reports the missing concept')
   harness.dispose()
 })
 

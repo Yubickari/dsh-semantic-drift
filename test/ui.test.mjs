@@ -75,6 +75,31 @@ test('a concept offers delete next to edit', () => {
   assert.match(html, /sd-button-danger/)
 })
 
+test('accepted exceptions offer edit and remove, and a clear action when plural', () => {
+  const html = render(createElement(ui.ConceptDetail, {
+    concept: {
+      ...concept,
+      accepted: [
+        { symbol: 'ModuleName', path: '**', reason: 'old reason' },
+        { symbol: 'ModuleName', path: '**/Common/**', reason: 'narrower' },
+      ],
+    },
+    findings: [],
+    showLow: false,
+    onEdit: () => undefined,
+    onDelete: () => undefined,
+    onEditException: () => undefined,
+    onRemoveException: () => undefined,
+    onClearExceptions: () => undefined,
+    onAccept: () => undefined,
+    onCopy: () => undefined,
+  }))
+  assert.match(html, /编辑 ModuleName \*\*/)
+  assert.match(html, /移除 ModuleName \*\*\/Common\/\*\*/)
+  assert.match(html, /清空/)
+  assert.equal((html.match(/aria-label="编辑 ModuleName/g) ?? []).length, 2, 'one edit action per exception')
+})
+
 test('the concept editor shows a duplicate-symbol issue, localized and verbatim', () => {
   const html = render(createElement(ui.ConceptEditor, {
     concept: undefined,

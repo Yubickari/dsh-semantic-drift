@@ -244,20 +244,42 @@ export function makeSemanticRoutes(
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const body = await readJson(req, 64 * 1_024)
         const conceptId = optionalString(body.conceptId)
-        const symbol = optionalString(body.symbol)
-        const reason = optionalString(body.reason)
         if (conceptId === undefined) return writeJson(res, 400, failure('bad-request', '`conceptId` is required.'))
-        if (symbol === undefined) return writeJson(res, 400, failure('bad-request', '`symbol` is required.'))
-        if (reason === undefined) {
-          return writeJson(res, 400, failure('bad-request', '`reason` is required: an exception without a reason is an undocumented decision.'))
+        const rawOp = typeof body.op === 'string' ? body.op : undefined
+        const ops = ['add', 'update', 'remove', 'clear'] as const
+        if (rawOp !== undefined && !(ops as readonly string[]).includes(rawOp)) {
+          return writeJson(res, 400, failure('bad-request', `Unknown op ${rawOp}; use ${ops.join(', ')}.`))
         }
-        const result = await service.accept(optionalString(body.workspace), {
+        const op = (rawOp ?? 'add') as (typeof ops)[number]
+        const symbol = optionalString(body.symbol)
+        if (op !== 'clear' && symbol === undefined) {
+          return writeJson(res, 400, failure('bad-request', '`symbol` is required for this op.'))
+        }
+        const reason = optionalString(body.reason)
+        if ((op === 'add' || op === 'update') && reason === undefined) {
+          return writeJson(res, 400, failure(
+            'bad-request',
+            '`reason` is required: an exception without a reason is an undocumented decision.',
+          ))
+        }
+        const occurrence = typeof body.occurrence === 'number' && Number.isInteger(body.occurrence)
+          ? body.occurrence
+          : undefined
+        const result = await service.changeException(optionalString(body.workspace), {
+          op,
           conceptId,
-          symbol,
-          reason,
+          ...(symbol === undefined ? {} : { symbol }),
           ...(optionalString(body.path) === undefined ? {} : { path: optionalString(body.path) as string }),
+          ...(optionalString(body.previousPath) === undefined ? {} : { previousPath: optionalString(body.previousPath) as string }),
+          ...(reason === undefined ? {} : { reason }),
+          ...(occurrence === undefined ? {} : { occurrence }),
         })
-        writeJson(res, 200, { ok: true, vocabulary: result.state, concept: result.concept })
+        writeJson(res, 200, {
+          ok: true,
+          vocabulary: result.state,
+          concept: result.concept,
+          changed: result.changed,
+        })
       } catch (error) {
         sendFailure(res, error)
       }

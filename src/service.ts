@@ -17,6 +17,8 @@ import type {
   Concept,
   Confidence,
   DetectorId,
+  ExceptionChange,
+  ExceptionOp,
   ScanResponse,
   StateResponse,
   ValidationIssue,
@@ -77,6 +79,24 @@ export interface SemanticServiceOptions {
   version: string
 }
 
+/** One exception lifecycle request, after transport decoding. */
+export interface ExceptionInput {
+  op?: ExceptionOp
+  conceptId: string
+  symbol?: string
+  path?: string
+  previousPath?: string
+  reason?: string
+  occurrence?: number
+}
+
+/** Outcome of one exception lifecycle request. */
+export interface ExceptionResult {
+  state: VocabularyState
+  concept: Concept
+  changed: ExceptionChange
+}
+
 /** The vocabulary operations both halves share. */
 export interface SemanticService {
   listWorkspaces(): WorkspaceOption[]
@@ -86,10 +106,8 @@ export interface SemanticService {
   save(requested: string | undefined, document: VocabularyDocument): Promise<VocabularyState>
   saveRaw(requested: string | undefined, text: string): Promise<VocabularyState>
   init(requested?: string): Promise<VocabularyState>
-  accept(
-    requested: string | undefined,
-    input: { conceptId: string; symbol: string; path?: string; reason: string },
-  ): Promise<{ state: VocabularyState; concept: Concept }>
+  /** Add, update, remove or clear the accepted exceptions of one concept. */
+  changeException(requested: string | undefined, input: ExceptionInput): Promise<ExceptionResult>
   upsert(
     requested: string | undefined,
     input: { concept: Partial<Concept> & { id?: string }; mode?: 'merge' | 'replace' },
@@ -246,10 +264,12 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     return result.state
   }
 
-  const accept = async (
-    requested: string | undefined,
-    input: { conceptId: string; symbol: string; path?: string; reason: string },
-  ): Promise<{ state: VocabularyState; concept: Concept }> => {
+  /**
+   * One exception lifecycle. Every branch loads the file first and rewrites the
+   * concept's `accepted` list, so an operation is always applied to what is on
+   * disk rather than to a snapshot a browser sent.
+   */
+  const changeException = async (requested: string | undefined, input: ExceptionInput): Promise<ExceptionResult> => {
     const target = await workspace.resolve(requested)
     const current = await load(target)
     if (!current.exists) {
@@ -260,32 +280,84 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     if (concept === undefined) {
       throw new SemanticError('not-found', `No concept with id ${input.conceptId}.`)
     }
-    const symbol = input.symbol.trim()
-    const reason = input.reason.trim()
+    const existing: readonly AcceptedException[] = concept.accepted ?? []
+    const op: ExceptionOp = input.op ?? 'add'
+    const normalizePath = (value: string | undefined): string | undefined => {
+      const trimmed = (value ?? '').trim()
+      return trimmed === '' ? undefined : trimmed
+    }
+    const withAccepted = async (next: AcceptedException[], changed: ExceptionChange): Promise<ExceptionResult> => {
+      const nextConcept: Concept = { ...concept }
+      if (next.length === 0) delete nextConcept.accepted
+      else nextConcept.accepted = next
+      const document: VocabularyDocument = {
+        ...current.document,
+        concepts: current.document.concepts.map(entry => (entry.id === concept.id ? nextConcept : entry)),
+      }
+      const result = await saveVocabulary(target.path, relativePath(), document)
+      if (!result.ok) {
+        throw new SemanticError('invalid-vocabulary', 'The exception was not written because it failed validation.', result.issues)
+      }
+      return { state: result.state, concept: nextConcept, changed }
+    }
+
+    if (op === 'clear') {
+      if (existing.length === 0) return { state: current, concept, changed: 'unchanged' }
+      return await withAccepted([], 'removed')
+    }
+
+    const symbol = (input.symbol ?? '').trim()
     if (symbol === '') throw new SemanticError('bad-request', 'symbol is required.')
-    if (reason === '') {
-      throw new SemanticError('bad-request', 'reason is required: an accepted exception without a reason is an undocumented decision.')
+    const reason = (input.reason ?? '').trim()
+    const matchPath = normalizePath(input.previousPath)
+    const occurrence = Number.isInteger(input.occurrence) && (input.occurrence as number) >= 0 ? (input.occurrence as number) : 0
+    const matches = existing
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => entry.symbol === symbol && (entry.path ?? '') === (matchPath ?? ''))
+    const found = matches[occurrence]
+
+    if (op === 'update' || op === 'add') {
+      if (reason === '') {
+        throw new SemanticError('bad-request', 'reason is required: an accepted exception without a reason is an undocumented decision.')
+      }
     }
-    const existing: AcceptedException[] = concept.accepted ?? []
-    const duplicate = existing.some(entry => entry.symbol === symbol && (entry.path ?? '') === (input.path ?? ''))
-    const nextConcept: Concept = duplicate
-      ? concept
-      : {
-          ...concept,
-          accepted: [
-            ...existing,
-            { symbol, ...(input.path === undefined || input.path === '' ? {} : { path: input.path }), reason },
-          ],
-        }
-    const document: VocabularyDocument = {
-      ...current.document,
-      concepts: current.document.concepts.map(entry => (entry.id === concept.id ? nextConcept : entry)),
+
+    if (op === 'add') {
+      const path = normalizePath(input.path)
+      if (existing.some(entry => entry.symbol === symbol && (entry.path ?? '') === (path ?? ''))) {
+        return { state: current, concept, changed: 'unchanged' }
+      }
+      return await withAccepted(
+        [...existing, { symbol, ...(path === undefined ? {} : { path }), reason }],
+        'added',
+      )
     }
-    const result = await saveVocabulary(target.path, relativePath(), document)
-    if (!result.ok) {
-      throw new SemanticError('invalid-vocabulary', 'The exception was not written because it failed validation.', result.issues)
+
+    if (found === undefined) {
+      if (op === 'remove') return { state: current, concept, changed: 'unchanged' }
+      throw new SemanticError(
+        'not-found',
+        `No accepted exception for ${symbol}${matchPath === undefined ? ' (whole symbol)' : ` at ${matchPath}`}.`,
+      )
     }
-    return { state: result.state, concept: nextConcept }
+
+    if (op === 'remove') {
+      return await withAccepted(existing.filter((_, index) => index !== found.index), 'removed')
+    }
+
+    const path = normalizePath(input.path)
+    const clash = existing.some((entry, index) =>
+      index !== found.index && entry.symbol === symbol && (entry.path ?? '') === (path ?? ''),
+    )
+    if (clash) {
+      throw new SemanticError('conflict', `An identical exception for ${symbol} already exists.`)
+    }
+    return await withAccepted(
+      existing.map((entry, index) =>
+        index === found.index ? { symbol, ...(path === undefined ? {} : { path }), reason } : entry,
+      ),
+      'updated',
+    )
   }
 
   const upsert = async (
@@ -336,7 +408,7 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     save,
     saveRaw,
     init,
-    accept,
+    changeException,
     upsert,
   }
 }

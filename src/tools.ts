@@ -15,7 +15,7 @@
 import { defineTool } from './define-tool.ts'
 import type { ToolDefinition } from './define-tool.ts'
 import { CONCEPT_KINDS, CONFIDENCE_LEVELS, DETECTOR_IDS } from './protocol.ts'
-import type { Concept, ConceptKind, Confidence, DetectorId, DriftFinding } from './protocol.ts'
+import type { Concept, ConceptKind, Confidence, DetectorId, DriftFinding, ExceptionOp } from './protocol.ts'
 import { SemanticError } from './service.ts'
 import type { SemanticService } from './service.ts'
 import type { WorkspaceTarget } from './workspace.ts'
@@ -334,27 +334,38 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
   const accept = defineTool({
     name: 'semantic_accept',
     description: [
-      'Record an accepted exception so a known spelling stops being reported.',
+      'Manage accepted exceptions: add one, change its scope or reason, remove one, or clear a concept.',
       'An exception needs a reason: it is a documented decision, not a silenced warning.',
-      '`path` scopes the exception to a glob; without it the symbol is accepted everywhere.',
+      '`path` is a glob; without it the symbol is accepted everywhere. Removing an exception makes the findings it muted reappear on the next scan.',
     ].join(' '),
     parameters: {
+      action: {
+        type: 'string',
+        enum: ['add', 'update', 'remove', 'clear'],
+        description: 'add (default), update, remove, or clear every exception of the concept.',
+      },
       conceptId: { type: 'string', required: true, description: 'Concept the exception belongs to.' },
-      symbol: { type: 'string', required: true, description: 'The observed spelling being accepted.' },
-      reason: { type: 'string', required: true, description: 'Why this spelling is allowed to stay.' },
-      path: { type: 'string', description: 'Glob relative to the workspace root, e.g. "src/Legacy/**". Default: everywhere.' },
+      symbol: { type: 'string', description: 'The observed spelling. Required for every action except clear.' },
+      path: { type: 'string', description: 'add/update: new scope as a workspace-relative glob, e.g. "src/Legacy/**". Omit for the whole symbol.' },
+      previousPath: { type: 'string', description: 'update/remove: which existing exception to target. Omit for the whole-symbol one.' },
+      reason: { type: 'string', description: 'Required for add and update. Why this spelling is allowed to stay.' },
+      occurrence: { type: 'integer', description: 'Which duplicate to target when a hand-edited file repeats the same symbol and path (default 0).' },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     async execute(args, exec) {
       try {
         const target = await host.resolveForSession(sessionOf(exec))
-        const result = await service.accept(target.path, {
+        const action = (args.action ?? 'add') as ExceptionOp
+        const result = await service.changeException(target.path, {
+          op: action,
           conceptId: args.conceptId,
-          symbol: args.symbol,
-          reason: args.reason,
-          ...(args.path === undefined || args.path === '' ? {} : { path: args.path }),
+          ...(args.symbol === undefined ? {} : { symbol: args.symbol }),
+          ...(args.path === undefined ? {} : { path: args.path }),
+          ...(args.previousPath === undefined ? {} : { previousPath: args.previousPath }),
+          ...(args.reason === undefined ? {} : { reason: args.reason }),
+          ...(args.occurrence === undefined ? {} : { occurrence: args.occurrence }),
         })
-        return json({ ok: true, concept: conceptView(result.concept) })
+        return json({ ok: true, changed: result.changed, concept: conceptView(result.concept) })
       } catch (error) {
         return toolError(error)
       }

@@ -8,7 +8,7 @@
  * @module dsh-semantic-drift/client/ConceptDetail
  */
 
-import type { Concept, DriftFinding } from '../protocol.ts'
+import type { AcceptedException, Concept, DriftFinding } from '../protocol.ts'
 import { matchesGlob } from '../glob.ts'
 import { t, tf } from './locales.ts'
 import { DriftList } from './DriftList.tsx'
@@ -22,6 +22,12 @@ export interface ConceptDetailProps {
   onEdit: (concept: Concept) => void
   /** Ask for confirmation before removing the concept from the vocabulary. */
   onDelete: (concept: Concept) => void
+  /** Change one accepted exception's scope or reason. */
+  onEditException: (concept: Concept, index: number) => void
+  /** Remove one accepted exception, after confirmation. */
+  onRemoveException: (concept: Concept, index: number) => void
+  /** Remove every accepted exception of the concept, after confirmation. */
+  onClearExceptions: (concept: Concept) => void
   onAccept: (finding: DriftFinding) => void
   onCopy: (text: string) => void
 }
@@ -85,7 +91,20 @@ export function ConceptDetail(props: ConceptDetailProps) {
 
       {(concept.accepted ?? []).length > 0 && (
         <div className="sd-section">
-          <div className="sd-section-title">{t('detail.accepted')}</div>
+          <div className="sd-spread" style={{ marginBottom: 8 }}>
+            <div className="sd-section-title" style={{ margin: 0 }}>
+              {t('detail.accepted')} ({(concept.accepted ?? []).length})
+            </div>
+            {(concept.accepted ?? []).length > 1 && (
+              <button
+                type="button"
+                className="sd-button sd-button-ghost"
+                onClick={() => props.onClearExceptions(concept)}
+              >
+                {t('action.clearAll')}
+              </button>
+            )}
+          </div>
           <div className="sd-drift">
             {(concept.accepted ?? []).map((exception, index) => (
               <div className="sd-drift-row" key={`${exception.symbol}-${index}`}>
@@ -102,6 +121,26 @@ export function ConceptDetail(props: ConceptDetailProps) {
                       ).length,
                     })}
                   </div>
+                </div>
+                <div className="sd-row-actions">
+                  <button
+                    type="button"
+                    className="sd-button sd-button-ghost"
+                    title={t('action.edit')}
+                    aria-label={`${t('action.edit')} ${exception.symbol} ${exception.path ?? '**'}`}
+                    onClick={() => props.onEditException(concept, index)}
+                  >
+                    <EditIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="sd-button sd-button-ghost"
+                    title={t('action.remove')}
+                    aria-label={`${t('action.remove')} ${exception.symbol} ${exception.path ?? '**'}`}
+                    onClick={() => props.onRemoveException(concept, index)}
+                  >
+                    <TrashIcon />
+                  </button>
                 </div>
               </div>
             ))}

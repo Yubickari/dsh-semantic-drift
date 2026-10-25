@@ -238,21 +238,37 @@ export interface SaveRawRequest {
   text: string
 }
 
-/** `POST /semantic-drift/accept` payload. */
+/** What a request does to one exception. */
+export type ExceptionOp = 'add' | 'update' | 'remove' | 'clear'
+
+/** `POST /semantic-drift/accept` payload: one exception lifecycle operation. */
 export interface AcceptRequest {
   workspace?: string
+  /** Defaults to `add`, so the original callers keep working unchanged. */
+  op?: ExceptionOp
   conceptId: string
-  symbol: string
-  /** Glob scoping the exception; absent mutes the symbol everywhere. */
+  /** Required for every op except `clear`. */
+  symbol?: string
+  /** New (add/update) or current (remove/update match) glob; absent = whole symbol. */
   path?: string
-  reason: string
+  /** Which existing exception an update or remove targets. */
+  previousPath?: string
+  /** Required for add and update. */
+  reason?: string
+  /** Disambiguates hand-edited duplicate entries; defaults to 0. */
+  occurrence?: number
 }
+
+/** What an exception operation actually did. */
+export type ExceptionChange = 'added' | 'updated' | 'removed' | 'unchanged'
 
 /** Answer of every write route: the vocabulary as written. */
 export interface WriteResponse {
   ok: true
   vocabulary: VocabularyState
   concept?: Concept
+  /** Exception operations report their outcome, so `unchanged` is never silent. */
+  changed?: ExceptionChange
 }
 
 /** Why a request was refused. Stable codes; the panel translates them. */

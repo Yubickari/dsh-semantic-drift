@@ -11,7 +11,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { Concept, DriftFinding, ScanResponse, StateResponse, ValidationIssue } from '../protocol.ts'
+import type {
+  AcceptRequest,
+  AcceptedException,
+  Concept,
+  DriftFinding,
+  ScanResponse,
+  StateResponse,
+  ValidationIssue,
+  WriteResponse,
+} from '../protocol.ts'
 import { acceptException, ApiError, fetchState, initVocabulary, runScan, saveDocument, saveRaw } from './api.ts'
 import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
 import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
@@ -19,6 +28,8 @@ import { IssueList } from './IssueList.tsx'
 import { Notice } from './Notice.tsx'
 import { loadPreferences, savePreferences } from './preferences.ts'
 import { matchesGlob } from '../glob.ts'
+import { ScopeSelect, coveredBy, scopeFromPath, scopePathFor } from './ScopeSelect.tsx'
+import type { ScopeValue } from './ScopeSelect.tsx'
 import type { NoticeValue } from './Notice.tsx'
 import { ConceptEditor } from './ConceptEditor.tsx'
 import { ConceptTree } from './ConceptTree.tsx'
@@ -137,8 +148,12 @@ export function SemanticPanel(props: PanelProps) {
   const [acceptReason, setAcceptReason] = useState('')
   const [acceptConceptId, setAcceptConceptId] = useState<string | undefined>(undefined)
   const [deleteTarget, setDeleteTarget] = useState<Concept | null>(null)
-  const [acceptScope, setAcceptScope] = useState<'file' | 'family' | 'symbol' | 'custom'>('file')
-  const [acceptCustomPath, setAcceptCustomPath] = useState('')
+  const [acceptScope, setAcceptScope] = useState<ScopeValue>({ kind: 'file', custom: '' })
+  const [exceptionEdit, setExceptionEdit] = useState<{ concept: Concept; index: number } | null>(null)
+  const [editScope, setEditScope] = useState<ScopeValue>({ kind: 'symbol', custom: '' })
+  const [editReason, setEditReason] = useState('')
+  const [exceptionRemove, setExceptionRemove] = useState<{ concept: Concept; index: number } | null>(null)
+  const [exceptionClear, setExceptionClear] = useState<{ concept: Concept; count: number } | null>(null)
 
   const effectivePath = state?.workspace.path
 
@@ -384,29 +399,171 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [concepts, deleteTarget, effectivePath, notReady, scanPath, selection, vocabulary])
 
-  /** The glob one accept scope produces for this finding. */
-  const scopePath = useCallback((finding: DriftFinding, scope: typeof acceptScope, custom: string): string | undefined => {
-    if (scope === 'file') return finding.path
-    if (scope === 'family') return `**/${finding.path.split('/').at(-1) ?? finding.path}`
-    if (scope === 'symbol') return undefined
-    const trimmed = custom.trim()
-    return trimmed === '' ? undefined : trimmed
+  /** One exception write; every op shares the error handling and the rescan. */
+  const runException = useCallback(async (
+    input: Omit<AcceptRequest, 'workspace'>,
+  ): Promise<WriteResponse | undefined> => {
+    if (effectivePath === undefined) {
+      notReady()
+      return undefined
+    }
+    setBusy('accept')
+    try {
+      const result = await acceptException({ workspace: effectivePath, ...input })
+      setState(current => (current === null ? current : { ...current, vocabulary: result.vocabulary }))
+      await scanPath(effectivePath)
+      return result
+    } catch (error) {
+      setNotice({
+        kind: 'error',
+        text: saveFailureText(error, 'state.acceptFailed', issuesOf(error)),
+        issues: issuesOf(error),
+      })
+      return undefined
+    } finally {
+      setBusy(null)
+    }
+  }, [effectivePath, notReady, scanPath])
+
+  /** Re-add previously removed exceptions, for the notice's undo action. */
+  const restoreExceptions = useCallback(async (
+    conceptId: string,
+    exceptions: readonly AcceptedException[],
+  ): Promise<void> => {
+    if (effectivePath === undefined) {
+      notReady()
+      return
+    }
+    setBusy('accept')
+    try {
+      let last: WriteResponse | undefined
+      for (const exception of exceptions) {
+        last = await acceptException({
+          workspace: effectivePath,
+          op: 'add',
+          conceptId,
+          symbol: exception.symbol,
+          ...(exception.path === undefined ? {} : { path: exception.path }),
+          reason: exception.reason,
+        })
+      }
+      if (last !== undefined) {
+        setState(current => (current === null ? current : { ...current, vocabulary: last.vocabulary }))
+      }
+      await scanPath(effectivePath)
+      setNotice({ kind: 'success', text: t('state.restored') })
+    } catch (error) {
+      setNotice({
+        kind: 'error',
+        text: saveFailureText(error, 'state.acceptFailed', issuesOf(error)),
+        issues: issuesOf(error),
+      })
+    } finally {
+      setBusy(null)
+    }
+  }, [effectivePath, notReady, scanPath])
+
+  /** Which duplicate of the same (symbol, path) this row is. */
+  const occurrenceOf = useCallback((concept: Concept, index: number): number => {
+    const list = concept.accepted ?? []
+    const target = list[index]
+    if (target === undefined) return 0
+    return list
+      .slice(0, index)
+      .filter(entry => entry.symbol === target.symbol && (entry.path ?? '') === (target.path ?? ''))
+      .length
   }, [])
 
-  /** Findings this scope would mute: same symbol, matching path. */
-  const coveredFindings = useCallback((finding: DriftFinding, path: string | undefined): DriftFinding[] =>
-    findings.filter(other => other.symbol === finding.symbol && matchesGlob(path, other.path)), [findings])
+  const openExceptionEdit = useCallback((concept: Concept, index: number) => {
+    const exception = concept.accepted?.[index]
+    if (exception === undefined) return
+    setEditScope(scopeFromPath(exception.path, exception.path ?? ''))
+    setEditReason(exception.reason)
+    setExceptionEdit({ concept, index })
+  }, [])
+
+  const submitExceptionEdit = useCallback(async () => {
+    if (exceptionEdit === null) return
+    const exception = exceptionEdit.concept.accepted?.[exceptionEdit.index]
+    if (exception === undefined) {
+      setExceptionEdit(null)
+      return
+    }
+    if (editReason.trim() === '') return
+    const path = scopePathFor(exception.path ?? '', editScope)
+    const result = await runException({
+      op: 'update',
+      conceptId: exceptionEdit.concept.id,
+      symbol: exception.symbol,
+      ...(exception.path === undefined ? {} : { previousPath: exception.path }),
+      ...(path === undefined ? {} : { path }),
+      reason: editReason.trim(),
+      occurrence: occurrenceOf(exceptionEdit.concept, exceptionEdit.index),
+    })
+    if (result === undefined) return
+    setExceptionEdit(null)
+    setNotice({ kind: 'success', text: t('state.exceptionSaved') })
+  }, [editReason, editScope, exceptionEdit, occurrenceOf, runException])
+
+  const openExceptionRemove = useCallback((concept: Concept, index: number) => {
+    if (concept.accepted?.[index] === undefined) return
+    setExceptionRemove({ concept, index })
+  }, [])
+
+  const confirmExceptionRemove = useCallback(async () => {
+    if (exceptionRemove === null) return
+    const exception = exceptionRemove.concept.accepted?.[exceptionRemove.index]
+    if (exception === undefined) {
+      setExceptionRemove(null)
+      return
+    }
+    const conceptId = exceptionRemove.concept.id
+    const mutes = coveredBy(findings, exception.symbol, exception.path).length
+    const result = await runException({
+      op: 'remove',
+      conceptId,
+      symbol: exception.symbol,
+      ...(exception.path === undefined ? {} : { previousPath: exception.path }),
+      occurrence: occurrenceOf(exceptionRemove.concept, exceptionRemove.index),
+    })
+    if (result === undefined) return
+    setExceptionRemove(null)
+    setNotice({
+      kind: 'success',
+      text: tf('state.exceptionRemoved', { count: mutes }),
+      action: { label: t('action.undo'), run: () => { void restoreExceptions(conceptId, [exception]) } },
+    })
+  }, [exceptionRemove, findings, occurrenceOf, restoreExceptions, runException])
+
+  const openExceptionClear = useCallback((concept: Concept) => {
+    const count = (concept.accepted ?? []).length
+    if (count === 0) return
+    setExceptionClear({ concept, count })
+  }, [])
+
+  const confirmExceptionClear = useCallback(async () => {
+    if (exceptionClear === null) return
+    const conceptId = exceptionClear.concept.id
+    const removed = exceptionClear.concept.accepted ?? []
+    const result = await runException({ op: 'clear', conceptId })
+    if (result === undefined) return
+    setExceptionClear(null)
+    setNotice({
+      kind: 'success',
+      text: tf('state.exceptionsCleared', { count: removed.length }),
+      action: { label: t('action.undo'), run: () => { void restoreExceptions(conceptId, removed) } },
+    })
+  }, [exceptionClear, restoreExceptions, runException])
 
   const openAccept = useCallback((finding: DriftFinding) => {
     setAcceptTarget(finding)
     setAcceptReason('')
     setAcceptConceptId(defaultAcceptConcept(finding, concepts))
-    const familyPath = `**/${finding.path.split('/').at(-1) ?? finding.path}`
-    setAcceptCustomPath(familyPath)
-    setAcceptScope(
-      coveredFindings(finding, familyPath).length > coveredFindings(finding, finding.path).length ? 'family' : 'file',
-    )
-  }, [concepts, coveredFindings])
+    const family: ScopeValue = { kind: 'family', custom: '' }
+    const familyCount = coveredBy(findings, finding.symbol, scopePathFor(finding.path, family)).length
+    const fileCount = coveredBy(findings, finding.symbol, finding.path).length
+    setAcceptScope(familyCount > fileCount ? family : { kind: 'file', custom: '' })
+  }, [concepts, findings])
 
   const promote = useCallback((finding: DriftFinding) => {
     setEditorIssues([])
@@ -435,9 +592,9 @@ export function SemanticPanel(props: PanelProps) {
         workspace: effectivePath,
         conceptId,
         symbol: acceptTarget.symbol,
-        ...(scopePath(acceptTarget, acceptScope, acceptCustomPath) === undefined
+        ...(scopePathFor(acceptTarget.path, acceptScope) === undefined
           ? {}
-          : { path: scopePath(acceptTarget, acceptScope, acceptCustomPath) as string }),
+          : { path: scopePathFor(acceptTarget.path, acceptScope) as string }),
         reason: acceptReason.trim(),
       })
       setState(current => (current === null ? current : { ...current, vocabulary: result.vocabulary }))
@@ -451,7 +608,7 @@ export function SemanticPanel(props: PanelProps) {
     } finally {
       setBusy(null)
     }
-  }, [acceptConceptId, acceptCustomPath, acceptReason, acceptScope, acceptTarget, effectivePath, scanPath, scopePath])
+  }, [acceptConceptId, acceptReason, acceptScope, acceptTarget, effectivePath, scanPath])
 
   const issuesOfVocabulary = vocabulary?.issues ?? []
   const vocabularyHealth = severityOf(issuesOfVocabulary)
@@ -548,6 +705,9 @@ export function SemanticPanel(props: PanelProps) {
           setView({ kind: 'edit', concept })
         }}
         onDelete={openDelete}
+        onEditException={openExceptionEdit}
+        onRemoveException={openExceptionRemove}
+        onClearExceptions={openExceptionClear}
         onAccept={openAccept}
         onCopy={text => void copy(text)}
       />
@@ -852,10 +1012,115 @@ export function SemanticPanel(props: PanelProps) {
         </div>
       )}
 
+      {exceptionEdit !== null && (() => {
+        const exception = exceptionEdit.concept.accepted?.[exceptionEdit.index]
+        if (exception === undefined) return null
+        return (
+          <div className="sd-dialog-backdrop" onClick={() => setExceptionEdit(null)}>
+            <div className="sd-dialog" onClick={event => event.stopPropagation()}>
+              <div className="sd-dialog-title">{t('exception.editTitle')}</div>
+              <div className="sd-hint">
+                <span className="sd-code">{exception.symbol}</span> · {t('exception.symbolFixed')}
+              </div>
+              <ScopeSelect
+                anchor={exception.path ?? ''}
+                symbol={exception.symbol}
+                findings={findings}
+                value={editScope}
+                onChange={setEditScope}
+                originalPath={exception.path}
+              />
+              <label className="sd-label" htmlFor="sd-exception-reason">{t('editor.acceptedReason')}</label>
+              <input
+                id="sd-exception-reason"
+                className="sd-input"
+                value={editReason}
+                placeholder={t('editor.acceptedReasonHint')}
+                onChange={event => setEditReason(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') void submitExceptionEdit()
+                }}
+              />
+              <div className="sd-form-actions">
+                <button
+                  type="button"
+                  className="sd-button sd-button-primary"
+                  onClick={() => void submitExceptionEdit()}
+                  disabled={busy !== null || editReason.trim() === ''}
+                >
+                  {t('action.save')}
+                </button>
+                <button type="button" className="sd-button" onClick={() => setExceptionEdit(null)}>
+                  {t('action.cancel')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {exceptionRemove !== null && (() => {
+        const exception = exceptionRemove.concept.accepted?.[exceptionRemove.index]
+        if (exception === undefined) return null
+        return (
+          <div className="sd-dialog-backdrop" onClick={() => setExceptionRemove(null)}>
+            <div className="sd-dialog" onClick={event => event.stopPropagation()}>
+              <div className="sd-dialog-title">{t('exception.removeTitle')}</div>
+              <div className="sd-dialog-body">
+                <span className="sd-code">{exception.symbol}</span> · <span className="sd-mono">{exception.path ?? '**'}</span>
+              </div>
+              <div className="sd-dialog-body">
+                {tf('exception.removeBody', { count: coveredBy(findings, exception.symbol, exception.path).length })}
+              </div>
+              <div className="sd-form-actions">
+                <button
+                  type="button"
+                  className="sd-button sd-button-danger"
+                  onClick={() => void confirmExceptionRemove()}
+                  disabled={busy !== null}
+                >
+                  <TrashIcon />
+                  {t('action.remove')}
+                </button>
+                <button type="button" className="sd-button" onClick={() => setExceptionRemove(null)}>
+                  {t('action.cancel')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {exceptionClear !== null && (
+        <div className="sd-dialog-backdrop" onClick={() => setExceptionClear(null)}>
+          <div className="sd-dialog" onClick={event => event.stopPropagation()}>
+            <div className="sd-dialog-title">{t('exception.clearTitle')}</div>
+            <div className="sd-dialog-body">
+              <span className="sd-code">{exceptionClear.concept.id}</span>
+            </div>
+            <div className="sd-dialog-body">{tf('exception.clearBody', { count: exceptionClear.count })}</div>
+            <div className="sd-form-actions">
+              <button
+                type="button"
+                className="sd-button sd-button-danger"
+                onClick={() => void confirmExceptionClear()}
+                disabled={busy !== null}
+              >
+                <TrashIcon />
+                {t('action.clearAll')}
+              </button>
+              <button type="button" className="sd-button" onClick={() => setExceptionClear(null)}>
+                {t('action.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {acceptTarget !== null && (
         <div className="sd-dialog-backdrop" onClick={() => setAcceptTarget(null)}>
           <div className="sd-dialog" onClick={event => event.stopPropagation()}>
-            <label className="sd-label" htmlFor="sd-accept-reason">{t('editor.acceptedReason')}</label>
+            <div className="sd-dialog-title">{t('detail.accepted')}</div>
             <div className="sd-hint">
               <span className="sd-code">{acceptTarget.symbol}</span> · {acceptTarget.path}:{acceptTarget.line}
             </div>
@@ -880,10 +1145,17 @@ export function SemanticPanel(props: PanelProps) {
                     </div>
                   )
             )}
+            <ScopeSelect
+              anchor={acceptTarget.path}
+              symbol={acceptTarget.symbol}
+              findings={findings}
+              value={acceptScope}
+              onChange={setAcceptScope}
+            />
+            <label className="sd-label" htmlFor="sd-accept-reason">{t('editor.acceptedReason')}</label>
             <input
               id="sd-accept-reason"
               className="sd-input"
-              autoFocus
               value={acceptReason}
               placeholder={t('editor.acceptedReasonHint')}
               onChange={event => setAcceptReason(event.target.value)}
@@ -891,84 +1163,37 @@ export function SemanticPanel(props: PanelProps) {
                 if (event.key === 'Enter') void confirmAccept()
               }}
             />
-            {(() => {
-              const current = scopePath(acceptTarget, acceptScope, acceptCustomPath)
-              const covered = coveredFindings(acceptTarget, current)
-              const options = (['file', 'family', 'symbol', 'custom'] as const).map(scope => ({
-                scope,
-                count: coveredFindings(acceptTarget, scopePath(acceptTarget, scope, acceptCustomPath)).length,
-              }))
-              return (
-                <>
-                  <div className="sd-field" style={{ gap: 5 }}>
-                    <span className="sd-label">{t('accept.scope')}</span>
-                    <div className="sd-scope">
-                      {options.map(option => (
-                        <label
-                          key={option.scope}
-                          className="sd-scope-option"
-                          data-active={acceptScope === option.scope}
-                        >
-                          <input
-                            type="radio"
-                            name="sd-accept-scope"
-                            checked={acceptScope === option.scope}
-                            onChange={() => setAcceptScope(option.scope)}
-                          />
-                          <span>{t(`accept.scope.${option.scope}` as MessageKey)}</span>
-                          <span className="sd-scope-count">{option.count}</span>
-                        </label>
-                      ))}
-                    </div>
-                    {acceptScope === 'custom' && (
-                      <input
-                        className="sd-input sd-mono"
-                        value={acceptCustomPath}
-                        placeholder="**/Common/LanguageProvider.cs"
-                        onChange={event => setAcceptCustomPath(event.target.value)}
-                        spellCheck={false}
-                      />
-                    )}
-                    <span className="sd-hint">{tf('accept.covers', { count: covered.length })}</span>
-                    {covered.length > 1 && (
-                      <div className="sd-pathlist">
-                        {covered.slice(0, 6).map(path => <div key={path.id}>{path.path}:{path.line}</div>)}
-                        {covered.length > 6 && <div>… {covered.length - 6}</div>}
-                      </div>
-                    )}
-                  </div>
-                  <div className="sd-form-actions">
-                    {concepts.length === 0 && acceptTarget.conceptId === undefined
-                      ? (
-                          <button
-                            type="button"
-                            className="sd-button sd-button-primary"
-                            onClick={() => {
-                              const finding = acceptTarget
-                              setAcceptTarget(null)
-                              if (finding !== null) promote(finding)
-                            }}
-                          >
-                            {t('action.new')}
-                          </button>
-                        )
-                      : (
-                          <button
-                            type="button"
-                            className="sd-button sd-button-primary"
-                            onClick={() => void confirmAccept()}
-                            disabled={busy === 'accept' || acceptReason.trim() === '' || (acceptTarget.conceptId ?? acceptConceptId) === undefined}
-                          >
-                            {tf('accept.confirm', { count: covered.length })}
-                          </button>
-                        )}
-                    <button type="button" className="sd-button" onClick={() => setAcceptTarget(null)}>
-                      {t('action.cancel')}
+            <div className="sd-form-actions">
+              {concepts.length === 0 && acceptTarget.conceptId === undefined
+                ? (
+                    <button
+                      type="button"
+                      className="sd-button sd-button-primary"
+                      onClick={() => {
+                        const finding = acceptTarget
+                        setAcceptTarget(null)
+                        if (finding !== null) promote(finding)
+                      }}
+                    >
+                      {t('action.new')}
                     </button>
-                  </div>
-                </>
-              )
-            })()}
+                  )
+                : (
+                    <button
+                      type="button"
+                      className="sd-button sd-button-primary"
+                      onClick={() => void confirmAccept()}
+                      disabled={busy === 'accept' || acceptReason.trim() === '' || (acceptTarget.conceptId ?? acceptConceptId) === undefined}
+                    >
+                      {tf('accept.confirm', {
+                        count: coveredBy(findings, acceptTarget.symbol, scopePathFor(acceptTarget.path, acceptScope)).length,
+                      })}
+                    </button>
+                  )}
+              <button type="button" className="sd-button" onClick={() => setAcceptTarget(null)}>
+                {t('action.cancel')}
+              </button>
+            </div>
           </div>
         </div>
       )}

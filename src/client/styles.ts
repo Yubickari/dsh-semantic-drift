@@ -472,6 +472,15 @@ export const PANEL_CSS = `
   overflow: auto;
   overflow-wrap: anywhere;
 }
+.sd-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  opacity: .55;
+  transition: opacity .12s ease;
+}
+.sd-drift-row:hover .sd-row-actions, .sd-drift-row:focus-within .sd-row-actions { opacity: 1; }
 .sd-dialog-backdrop {
   position: absolute;
   inset: 0;

@@ -18,6 +18,8 @@ export interface NoticeValue {
   kind: 'success' | 'error'
   text: string
   issues?: readonly ValidationIssue[]
+  /** One immediate follow-up, e.g. undoing a removal. */
+  action?: { label: string; run: () => void }
 }
 
 /** Props of the notice bar. */
@@ -39,6 +41,15 @@ export function Notice({ notice, onDismiss, onRetry }: NoticeProps) {
     >
       <div className="sd-notice-head" data-multiline={multiline}>
         <span className="sd-notice-text">{notice.text}</span>
+        {notice.action !== undefined && (
+          <button
+            type="button"
+            className="sd-button sd-button-ghost"
+            onClick={() => notice.action?.run()}
+          >
+            {notice.action.label}
+          </button>
+        )}
         {onRetry !== undefined && (
           <button
             type="button"
