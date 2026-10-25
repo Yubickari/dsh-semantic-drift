@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- The GitHub release title is the tag (`v0.1.3`), not `vv0.1.3`: the workflow
+  prefixed a name that already starts with `v`.
+- Release notes stay generated from the commits since the previous tag.
+
 ## 0.1.2
 
 A small release that exercises the automated pipeline (tag -> tests -> npm publish
