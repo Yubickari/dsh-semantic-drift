@@ -68,6 +68,27 @@ pnpm build     # esbuild -> lib/index.js (host) + lib/client.js (browser)
   added, never repurposed, and every new field must be optional.
 - `VERSION` in `src/index.ts` and `package.json` must match; a test enforces it.
 
+## Publishing credentials
+
+The release workflow publishes with a token in the `NPM_TOKEN` secret. npm demands
+a one-time password for a publish unless the token is allowed to skip it, which is
+the usual reason a release fails with `EOTP`:
+
+- **Granular token** (preferred): Access Tokens → Generate New Token → Granular,
+  scope it to `dsh-semantic-drift` with *Read and write*, and tick **Bypass 2FA**.
+  Without that tick the token is fine for reads and useless for CI writes.
+- **Classic token → Automation** (fallback, if the granular form offers no bypass):
+  Automation tokens exist for CI and never ask for a one-time password.
+- **Trusted publishing** (once the repository is public): npmjs → the package →
+  Settings → Trusted publishing → add the GitHub repository and `release.yml`. The
+  workflow then needs no secret at all, only `id-token: write`, and provenance
+  comes for free; remove the `NODE_AUTH_TOKEN` lines and the token check when you
+  switch.
+
+A publish can always be done by hand: `npm publish` in the repository root, approve
+in the browser, then re-run the release workflow — it skips a version that is
+already on the registry and only creates the GitHub release.
+
 ## Releasing
 
 1. Bump `package.json` and `VERSION`; add a section for the version at the top of
