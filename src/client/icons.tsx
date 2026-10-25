@@ -99,6 +99,17 @@ export function CloseIcon({ size = 12 }: IconProps) {
   )
 }
 
+export function SettingsIcon({ size = 14 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path d="M2.6 4.6h10.8M2.6 8h10.8M2.6 11.4h10.8" />
+      <circle cx="6.2" cy="4.6" r="1.5" />
+      <circle cx="10.4" cy="8" r="1.5" />
+      <circle cx="5.4" cy="11.4" r="1.5" />
+    </svg>
+  )
+}
+
 export function TrashIcon({ size = 13 }: IconProps) {
   return (
     <svg {...base(size)}>

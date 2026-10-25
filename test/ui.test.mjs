@@ -148,6 +148,40 @@ test('the tree has a header add button and one per group', () => {
   assert.match(html, /未归类/)
 })
 
+test('a derived copy and a renamed contract get their own labels', () => {
+  const base = {
+    id: 'duplicate-type:a/x.cs:Provider:3',
+    confidence: 'high',
+    path: 'a/x.cs',
+    line: 3,
+    symbol: 'Provider',
+    message: 'example',
+    citation: 'a/x.cs::Provider',
+  }
+  const derived = render(createElement(ui.DriftList, {
+    findings: [{ ...base, detector: 'duplicate-type', detail: { rule: 'derived-copy', base: 'ProviderBase' } }],
+    onAccept: () => undefined,
+    onCopy: () => undefined,
+    showLow: true,
+  }))
+  assert.match(derived, /派生副本/)
+  assert.doesNotMatch(derived, /建议合并/)
+
+  const alias = render(createElement(ui.DriftList, {
+    findings: [{
+      ...base,
+      detector: 'symbol-variant',
+      expected: 'LanguageProvider',
+      detail: { rule: 'contract-alias', base: 'ResourceProviderBase', members: ['ModuleName'], literals: { BaseFileName: ['Language'] } },
+    }],
+    onAccept: () => undefined,
+    onCopy: () => undefined,
+    showLow: true,
+  }))
+  assert.match(alias, /同一契约另一种命名/)
+  assert.match(alias, /LanguageProvider/)
+})
+
 test('a finding row names its detector, confidence and actions', () => {
   const finding = {
     id: 'duplicate-type:a/b.cs:ChannelNUm:3',

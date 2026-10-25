@@ -162,6 +162,17 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
       citationStyle: config.citationStyle,
       minConfidence: config.minConfidence,
       version: options.version,
+      effective: {
+        vocabularyPath: relativePath(),
+        announceToAgent: config.announceToAgent !== false,
+        citationStyle: config.citationStyle,
+        minConfidence: config.minConfidence,
+        timeoutMs: config.timeoutMs,
+        maxFindings: config.maxFindings,
+        maxFileBytes: config.maxFileBytes,
+        maxFiles: config.maxFiles,
+        detectors: [...(config.detectors ?? [])],
+      },
     }
   }
 

@@ -80,6 +80,20 @@ export interface TypeDeclaration {
    * compared with another one.
    */
   partial?: boolean
+  /**
+   * Base types as written (`class Foo : Bar<T>, IBaz` -> `['Bar', 'IBaz']`).
+   * Used to tell a parameterized derivative from a copy.
+   */
+  bases?: string[]
+  /**
+   * Single-line literal initializers per member name, e.g.
+   * `ModuleName => "YNE20.Algorithm"` -> `{ ModuleName: ['YNE20.Algorithm'] }`.
+   * Only simple literals are recorded; anything else stays absent, which keeps
+   * the comparison on the conservative path.
+   */
+  literals?: Record<string, string[]>
+  /** Members declared with `override`. */
+  overrides?: string[]
 }
 
 /** Language of a path, or `other` when the file is not read at all. */
@@ -387,6 +401,62 @@ function positionalMembers(code: string, from: number, to: number): string[] {
   return names
 }
 
+const MEMBER_LITERAL = /^\s*(?:(?:public|private|protected|internal|static|readonly|const|required|override|virtual|abstract|new|event)\s+)*[\w<>\[\],?.]+\s+([A-Za-z_$][\w$]*)\s*(?:=>|=)\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(-?\d+(?:\.\d+)?)|(true|false))\s*;?\s*$/
+
+/** Single-line literal initializers of one type body, keyed by member name. */
+function memberLiterals(body: string): Record<string, string[]> | undefined {
+  const out: Record<string, string[]> = {}
+  let found = false
+  for (const line of body.split('\n')) {
+    const match = MEMBER_LITERAL.exec(line)
+    if (match === null) continue
+    const value = match[2] ?? match[3] ?? match[4] ?? match[5]
+    if (value === undefined) continue
+    const list = out[match[1]] ?? []
+    if (!list.includes(value)) list.push(value)
+    out[match[1]] = list
+    found = true
+  }
+  return found ? out : undefined
+}
+
+/** Enumerator values of an enum body: `Idle = 1, Running` -> { Idle: ['1'] }. */
+function enumLiterals(body: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const part of splitTopLevel(body, ',')) {
+    const match = /^\s*(?:\[[^\]]*\]\s*)*([A-Za-z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/.exec(part)
+    if (match === null) continue
+    out[match[1]] = [match[2].replace(/\s+/g, ' ').trim()]
+  }
+  return out
+}
+
+const MEMBER_OVERRIDE = /\boverride\b[^;{=]*\b([A-Za-z_$][\w$]*)\s*(?:[{=;]|=>)/
+
+/** Members of one body declared with `override`. */
+function overriddenMembers(body: string): string[] {
+  const out: string[] = []
+  for (const line of body.split('\n')) {
+    if (!/\boverride\b/.test(line)) continue
+    const match = MEMBER_OVERRIDE.exec(line)
+    if (match !== null && !out.includes(match[1])) out.push(match[1])
+  }
+  return out
+}
+
+/** Base types of one declaration head (the text between the name and the body). */
+function baseTypes(head: string): string[] | undefined {
+  const colon = head.indexOf(':')
+  if (colon < 0) return undefined
+  const list = head
+    .slice(colon + 1)
+    .split(',')
+    .map(part => part.trim())
+    .map(part => /^(?:global::)?(?:[A-Za-z_$][\w$]*\.)*([A-Za-z_$][\w$]*)(?:\s*<.*)?$/.exec(part)?.[1])
+    .filter((name): name is string => name !== undefined)
+  return list.length === 0 ? undefined : list
+}
+
 const CS_TYPE = /(?:^|[;{}\s])(?:(?:public|internal|private|protected|static|sealed|abstract|partial|readonly|file|unsafe|new)\s+)*\b(class|struct|interface|record|enum)\s+(?:(?:struct|class)\s+)?([A-Za-z_]\w*)/g
 const TS_TYPE = /(?:^|[;{}\s])(?:export\s+)?(?:declare\s+)?(?:default\s+)?(?:abstract\s+)?\b(interface|type|enum|class)\s+([A-Za-z_$][\w$]*)/g
 
@@ -412,10 +482,17 @@ export function extractTypes(file: SourceFile, unitOf: (relPath: string) => stri
     const close = findMatchingBrace(masked.code, open)
     if (close === -1) continue
     const body = masked.code.slice(open + 1, close)
+    const originalBody = file.text.slice(open + 1, close)
     const members = bodyMembers(body, keyword, name, language)
     if (keyword === 'record' || language === 'kotlin') {
       for (const extra of positionalMembers(masked.code, pattern.lastIndex, open)) members.push(extra)
     }
+    const bases = language === 'csharp' ? baseTypes(masked.code.slice(pattern.lastIndex, open)) : undefined
+    const literals = {
+      ...(memberLiterals(originalBody) ?? {}),
+      ...(keyword === 'enum' ? enumLiterals(originalBody) : {}),
+    }
+    const overrides = language === 'csharp' ? overriddenMembers(body) : []
     out.push({
       name,
       keyword,
@@ -425,6 +502,9 @@ export function extractTypes(file: SourceFile, unitOf: (relPath: string) => stri
       unit: unitOf(file.relPath),
       language,
       ...(partial ? { partial: true } : {}),
+      ...(bases === undefined ? {} : { bases }),
+      ...(Object.keys(literals).length === 0 ? {} : { literals }),
+      ...(overrides.length === 0 ? {} : { overrides }),
     })
   }
   return out

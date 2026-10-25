@@ -32,6 +32,21 @@ export const contractDriftDetector: Detector = {
         if (members.size === primaryMembers.size && [...members].every(member => primaryMembers.has(member))) continue
         const missing = primary.members.filter(member => !members.has(member))
         const extra = declaration.members.filter(member => !primaryMembers.has(member))
+        // Values matter as much as names: an enum whose members swapped values is
+        // a contract change that a name-only comparison reports as "identical".
+        const valueDiffs: Array<{ member: string; left?: string; right?: string }> = []
+        for (const member of declaration.members) {
+          if (!primaryMembers.has(member)) continue
+          const left = declaration.literals?.[member]
+          const right = primary.literals?.[member]
+          if (left === undefined || right === undefined) continue
+          if (left.length === right.length && left.every(value => right.includes(value))) continue
+          valueDiffs.push({
+            member,
+            ...(right === undefined ? {} : { right: right.join('|') }),
+            ...(left === undefined ? {} : { left: left.join('|') }),
+          })
+        }
         // Nothing in common means the two declarations are different types that
         // happen to share a name (a `MainWindow` per application, say). Reporting
         // that as diverged vocabulary would be a name collision, not drift.
@@ -40,6 +55,9 @@ export const contractDriftDetector: Detector = {
         const difference = [
           missing.length === 0 ? '' : `missing [${missing.join(', ')}]`,
           extra.length === 0 ? '' : `extra [${extra.join(', ')}]`,
+          valueDiffs.length === 0
+            ? ''
+            : `values differ [${valueDiffs.slice(0, 3).map(diff => `${diff.member}: ${diff.right ?? '?'} -> ${diff.left ?? '?'}`).join('; ')}]`,
         ]
           .filter(part => part !== '')
           .join(', ')
@@ -59,6 +77,7 @@ export const contractDriftDetector: Detector = {
               members: primary.members,
               missing,
               extra,
+              ...(valueDiffs.length === 0 ? {} : { valueDiffs }),
               rule: 'diverged-members',
             },
           }),

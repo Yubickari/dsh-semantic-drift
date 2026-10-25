@@ -115,6 +115,14 @@ export interface FindingDetail {
   distance?: number
   /** Why the rule fired, as a stable code the panel can localize. */
   rule?: string
+  /** Shared base type, for a parameterized derivative. */
+  base?: string
+  /** Literal values per member name, when they are simple single-line literals. */
+  literals?: Record<string, string[]>
+  /** Members whose literal values differ between the two declarations. */
+  valueDiffs?: Array<{ member: string; left?: string; right?: string }>
+  /** How many declarations of this contract exist (derived/copy families). */
+  sites?: number
 }
 
 /** One reported drift. */
@@ -176,6 +184,19 @@ export interface VocabularyState {
   mtimeMs?: number
 }
 
+/** Settings the panel shows read-only, because DSH owns their editable form. */
+export interface EffectiveConfig {
+  vocabularyPath: string
+  announceToAgent: boolean
+  citationStyle: CitationStyle
+  minConfidence: Confidence
+  timeoutMs: number
+  maxFindings: number
+  maxFileBytes: number
+  maxFiles: number
+  detectors: DetectorId[]
+}
+
 /** One selectable workspace. */
 export interface WorkspaceOption {
   id: string
@@ -192,6 +213,8 @@ export interface StateResponse {
   citationStyle: CitationStyle
   minConfidence: Confidence
   version: string
+  /** The row's live settings; absent on a Host older than this field. */
+  effective?: EffectiveConfig
 }
 
 /** `POST /semantic-drift/scan` payload. */

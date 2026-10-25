@@ -32,6 +32,7 @@ Sidebar: Semantics
   - [Install](#install)
   - [Quick start](#quick-start)
     - [Following the workspace](#following-the-workspace)
+    - [Panel settings](#panel-settings)
     - [The unclassified list](#the-unclassified-list)
   - [The vocabulary file](#the-vocabulary-file)
   - [Detectors](#detectors)
@@ -101,7 +102,7 @@ Publishing to npm is possible but not required; the unscoped name
 
 ### Following the workspace
 
-The **Auto** switch in the header makes the panel follow the current DSH
+**Settings → Follow the workspace** makes the panel follow the current DSH
 workspace: switching sessions switches the vocabulary and rescans. Turning it off
 pins the workspace you last picked from the dropdown, and the choice is
 remembered per browser (not stored in the project). Picking a workspace from the
@@ -111,6 +112,25 @@ A selected concept carries **Edit** and **Delete** next to its title. Deleting
 removes the entry and every accepted exception it recorded from the vocabulary
 file; no code is touched, and findings only it covered return to the unclassified
 list.
+
+### Panel settings
+
+The gear at the top right opens the panel's own settings:
+
+- **Follow the workspace** — the switch described above.
+- **Notifications close after N seconds** — `0` keeps them until dismissed.
+  Notices that carry validation issues never close themselves; they are the text
+  you have to act on.
+- **Show low-confidence findings** — the same toggle that used to sit beside the
+  drift list.
+- **This project (read-only)** — the effective plugin settings (vocabulary path,
+  prompt injection, citation style, tool confidence floor, scan budgets,
+  detectors). They belong to the plugin row, so they are edited under
+  **Settings → Plugins → Semantic Drift**, and shown here so one page answers
+  "what is this panel actually doing".
+
+Every item shown here is a per-browser preference: it never enters
+`.dsh/semantics.yaml` and never changes the repository.
 
 ### The unclassified list
 
@@ -169,10 +189,16 @@ same bytes. Hand edits in the raw editor keep their own formatting.
 
 | Detector | Confidence | Signal |
 |---|---|---|
-| `duplicate-type` | high | the same type is declared in two compilation units with identical members |
-| `contract-drift` | high | the same type is declared in two units and the members differ (the two sides disagree) |
-| `symbol-variant` | medium | a spelling variant of `canonical.symbol`: case/separator form, a known confusable, or edit distance ≤ 2 on a declared name |
+| `duplicate-type` | high | **same members and same values** in two units: a real copy, and merging it is a safe suggestion |
+| | high | *derived copy*: same member names, different values, one base type every declaration shares — a parameterized derivative, never reported as a merge candidate |
+| | high | *same names, different values*: no shared base, so the two sides simply disagree about what those names mean |
+| `contract-drift` | high | the same type in two units with different members, or with different **values** for the same members |
+| `symbol-variant` | medium | a spelling variant of `canonical.symbol` (case/separator form, a known confusable, edit distance ≤ 2), or *same contract, other name*: a type with the same base, member set and stable literal as the canonical type |
 | `term-unmapped` | low | a declared term appears in comments or resources, but the canonical symbol never appears in code |
+
+Member **values** are compared too, when they are simple single-line literals. That
+closes a real false negative: two enums whose members swapped values used to look
+identical because only names were compared.
 
 Two filters keep the list short: a variant only fires when the file also mentions
 one of the concept's terms, or when both spellings share the same leading token;
@@ -287,7 +313,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 62 tests, no test framework
+pnpm test          # typecheck + node --test, 70 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

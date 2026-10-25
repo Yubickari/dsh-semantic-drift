@@ -19,11 +19,15 @@ export interface PanelPreferences {
   auto: boolean
   /** Last workspace the user picked, used while `auto` is off. */
   workspace?: string
+  /** Seconds before a notification closes itself; 0 keeps it until dismissed. */
+  notificationSeconds: number
+  /** Whether low-confidence findings are listed. */
+  showLow: boolean
 }
 
 /** Defaults: follow the workspace, no pin yet. */
 export function defaultPreferences(): PanelPreferences {
-  return { auto: true }
+  return { auto: true, notificationSeconds: 3, showLow: false }
 }
 
 /** Read the stored preferences, falling back to the defaults. */
@@ -34,9 +38,14 @@ export function loadPreferences(): PanelPreferences {
     const parsed: unknown = JSON.parse(raw)
     if (parsed === null || typeof parsed !== 'object') return defaultPreferences()
     const record = parsed as Record<string, unknown>
+    const seconds = typeof record.notificationSeconds === 'number' && Number.isFinite(record.notificationSeconds)
+      ? Math.max(0, Math.min(600, record.notificationSeconds))
+      : 3
     return {
       auto: typeof record.auto === 'boolean' ? record.auto : true,
       ...(typeof record.workspace === 'string' && record.workspace !== '' ? { workspace: record.workspace } : {}),
+      notificationSeconds: seconds,
+      showLow: record.showLow === true,
     }
   } catch {
     return defaultPreferences()

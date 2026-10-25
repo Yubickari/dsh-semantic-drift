@@ -13,6 +13,82 @@ import { formatCitation } from '../protocol.ts'
 import type { CitationStyle, Concept, DetectorId, DriftFinding, FindingDetail, Confidence } from '../protocol.ts'
 import type { MaskedText, SourceFile, TypeDeclaration } from './symbol-table.ts'
 
+/** How two declarations with the same member names relate by literal value. */
+export type LiteralRelation = 'same' | 'differ' | 'unknown'
+
+/**
+ * Compare the literal initializers two declarations give their shared members.
+ *
+ * `unknown` is the conservative answer when either side has no recorded literal
+ * for a member: the caller then falls back to name-only reasoning, which is the
+ * pre-existing behaviour.
+ */
+export function compareLiterals(left: TypeDeclaration, right: TypeDeclaration): LiteralRelation {
+  const leftLiterals = left.literals
+  const rightLiterals = right.literals
+  if (leftLiterals === undefined || rightLiterals === undefined) return 'unknown'
+  let comparable = 0
+  for (const member of left.members) {
+    const a = leftLiterals[member]
+    const b = rightLiterals[member]
+    if (a === undefined || b === undefined) continue
+    comparable++
+    if (a.length !== b.length || a.some(value => !b.includes(value))) return 'differ'
+  }
+  return comparable === 0 ? 'unknown' : 'same'
+}
+
+/**
+ * The literal values that are identical across every declaration of a name.
+ *
+ * This is the contract's fixed part: `BaseFileName = "Language"` is stable while
+ * `ModuleName` varies per module, so only the stable part can identify the same
+ * contract under a different type name.
+ */
+export function stableLiterals(declarations: readonly TypeDeclaration[]): Record<string, string[]> {
+  if (declarations.length < 2) return {}
+  const out: Record<string, string[]> = {}
+  for (const member of declarations[0].members) {
+    const values = declarations.map(declaration => declaration.literals?.[member])
+    if (values.some(value => value === undefined)) continue
+    const first = values[0] as string[]
+    if (first.length !== 1) continue
+    if (values.every(value => value !== undefined && value.length === 1 && value[0] === first[0])) {
+      out[member] = [first[0]]
+    }
+  }
+  return out
+}
+
+/** Members whose literal values disagree between two declarations. */
+export function memberValueDiffs(
+  left: TypeDeclaration,
+  right: TypeDeclaration,
+): Array<{ member: string; left?: string; right?: string }> {
+  const out: Array<{ member: string; left?: string; right?: string }> = []
+  for (const member of left.members) {
+    if (!right.members.includes(member)) continue
+    const a = left.literals?.[member]
+    const b = right.literals?.[member]
+    if (a === undefined || b === undefined) continue
+    if (a.length === b.length && a.every(value => b.includes(value))) continue
+    out.push({
+      member,
+      ...(b === undefined ? {} : { right: b.join('|') }),
+      ...(a === undefined ? {} : { left: a.join('|') }),
+    })
+  }
+  return out
+}
+
+/** Base types shared by every declaration of a group. */
+export function sharedBase(declarations: readonly TypeDeclaration[]): string | undefined {
+  if (declarations.length === 0) return undefined
+  const first = declarations[0].bases
+  if (first === undefined || first.length === 0) return undefined
+  return first.find(base => declarations.every(declaration => declaration.bases?.includes(base) === true))
+}
+
 /** Shared state handed to every detector. */
 export interface DetectorContext {
   /** Absolute workspace root. */

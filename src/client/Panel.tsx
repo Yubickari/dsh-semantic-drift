@@ -18,6 +18,7 @@ import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
 import { Notice } from './Notice.tsx'
 import { loadPreferences, savePreferences } from './preferences.ts'
+import { matchesGlob } from '../glob.ts'
 import type { NoticeValue } from './Notice.tsx'
 import { ConceptEditor } from './ConceptEditor.tsx'
 import { ConceptTree } from './ConceptTree.tsx'
@@ -25,7 +26,7 @@ import { DriftList } from './DriftList.tsx'
 import { RawEditor } from './RawEditor.tsx'
 import { maybeT, t, tf } from './locales.ts'
 import type { MessageKey } from './locales.ts'
-import { CodeIcon, PlusIcon, RefreshIcon, TrashIcon } from './icons.tsx'
+import { CodeIcon, PlusIcon, RefreshIcon, SettingsIcon, TrashIcon } from './icons.tsx'
 import { PANEL_CSS } from './styles.ts'
 
 /** Standard props the shell passes to a `main` entry. Both are optional so a
@@ -119,6 +120,8 @@ export function SemanticPanel(props: PanelProps) {
   const [preferences] = useState(() => loadPreferences())
   const [auto, setAuto] = useState(preferences.auto)
   const [pinned, setPinned] = useState<string | undefined>(preferences.workspace)
+  const [notificationSeconds, setNotificationSeconds] = useState(preferences.notificationSeconds)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [requested, setRequested] = useState<string | undefined>(preferences.auto ? undefined : preferences.workspace)
   const [state, setState] = useState<StateResponse | null>(null)
   const [scan, setScan] = useState<ScanResponse | null>(null)
@@ -126,7 +129,7 @@ export function SemanticPanel(props: PanelProps) {
   const [view, setView] = useState<View>({ kind: 'browse' })
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'drift' | 'clean'>('all')
-  const [showLow, setShowLow] = useState(false)
+  const [showLow, setShowLow] = useState(preferences.showLow)
   const [busy, setBusy] = useState<'load' | 'scan' | 'save' | 'accept' | 'init' | null>(null)
   const [notice, setNotice] = useState<NoticeValue | null>(null)
   const [editorIssues, setEditorIssues] = useState<readonly ValidationIssue[]>([])
@@ -134,6 +137,8 @@ export function SemanticPanel(props: PanelProps) {
   const [acceptReason, setAcceptReason] = useState('')
   const [acceptConceptId, setAcceptConceptId] = useState<string | undefined>(undefined)
   const [deleteTarget, setDeleteTarget] = useState<Concept | null>(null)
+  const [acceptScope, setAcceptScope] = useState<'file' | 'family' | 'symbol' | 'custom'>('file')
+  const [acceptCustomPath, setAcceptCustomPath] = useState('')
 
   const effectivePath = state?.workspace.path
 
@@ -178,8 +183,25 @@ export function SemanticPanel(props: PanelProps) {
   }, [target, load])
 
   useEffect(() => {
-    savePreferences({ auto, ...(pinned === undefined ? {} : { workspace: pinned }) })
-  }, [auto, pinned])
+    savePreferences({
+      auto,
+      ...(pinned === undefined ? {} : { workspace: pinned }),
+      notificationSeconds,
+      showLow,
+    })
+  }, [auto, pinned, notificationSeconds, showLow])
+
+  // A success notice closes itself after the configured delay; an error that
+  // carries validation issues never does, because that is the text the user has
+  // to act on. 0 disables the timer entirely.
+  useEffect(() => {
+    if (notice === null) return
+    if (!(notificationSeconds > 0)) return
+    const autoClosable = notice.kind === 'success' || (notice.issues ?? []).length === 0
+    if (!autoClosable) return
+    const timer = setTimeout(() => setNotice(null), notificationSeconds * 1_000)
+    return () => clearTimeout(timer)
+  }, [notice, notificationSeconds])
 
   useEffect(() => {
     if (effectivePath === undefined) return
@@ -362,11 +384,29 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [concepts, deleteTarget, effectivePath, notReady, scanPath, selection, vocabulary])
 
+  /** The glob one accept scope produces for this finding. */
+  const scopePath = useCallback((finding: DriftFinding, scope: typeof acceptScope, custom: string): string | undefined => {
+    if (scope === 'file') return finding.path
+    if (scope === 'family') return `**/${finding.path.split('/').at(-1) ?? finding.path}`
+    if (scope === 'symbol') return undefined
+    const trimmed = custom.trim()
+    return trimmed === '' ? undefined : trimmed
+  }, [])
+
+  /** Findings this scope would mute: same symbol, matching path. */
+  const coveredFindings = useCallback((finding: DriftFinding, path: string | undefined): DriftFinding[] =>
+    findings.filter(other => other.symbol === finding.symbol && matchesGlob(path, other.path)), [findings])
+
   const openAccept = useCallback((finding: DriftFinding) => {
     setAcceptTarget(finding)
     setAcceptReason('')
     setAcceptConceptId(defaultAcceptConcept(finding, concepts))
-  }, [concepts])
+    const familyPath = `**/${finding.path.split('/').at(-1) ?? finding.path}`
+    setAcceptCustomPath(familyPath)
+    setAcceptScope(
+      coveredFindings(finding, familyPath).length > coveredFindings(finding, finding.path).length ? 'family' : 'file',
+    )
+  }, [concepts, coveredFindings])
 
   const promote = useCallback((finding: DriftFinding) => {
     setEditorIssues([])
@@ -395,7 +435,9 @@ export function SemanticPanel(props: PanelProps) {
         workspace: effectivePath,
         conceptId,
         symbol: acceptTarget.symbol,
-        path: acceptTarget.path,
+        ...(scopePath(acceptTarget, acceptScope, acceptCustomPath) === undefined
+          ? {}
+          : { path: scopePath(acceptTarget, acceptScope, acceptCustomPath) as string }),
         reason: acceptReason.trim(),
       })
       setState(current => (current === null ? current : { ...current, vocabulary: result.vocabulary }))
@@ -409,7 +451,7 @@ export function SemanticPanel(props: PanelProps) {
     } finally {
       setBusy(null)
     }
-  }, [acceptConceptId, acceptReason, acceptTarget, effectivePath, scanPath])
+  }, [acceptConceptId, acceptCustomPath, acceptReason, acceptScope, acceptTarget, effectivePath, scanPath, scopePath])
 
   const issuesOfVocabulary = vocabulary?.issues ?? []
   const vocabularyHealth = severityOf(issuesOfVocabulary)
@@ -501,7 +543,6 @@ export function SemanticPanel(props: PanelProps) {
         concept={selectedConcept}
         findings={findings}
         showLow={showLow}
-        onShowLow={setShowLow}
         onEdit={concept => {
           setEditorIssues([])
           setView({ kind: 'edit', concept })
@@ -526,20 +567,6 @@ export function SemanticPanel(props: PanelProps) {
           </div>
         </div>
         <span className="sd-spacer" />
-        <button
-          type="button"
-          className="sd-switch"
-          role="switch"
-          aria-checked={auto}
-          aria-label={t('auto.label')}
-          title={auto ? t('auto.onHint') : t('auto.offHint')}
-          onClick={toggleAuto}
-        >
-          <span className="sd-switch-track" data-on={auto}>
-            <span className="sd-switch-knob" />
-          </span>
-          {t('auto.label')}
-        </button>
         {(state?.workspaces.length ?? 0) > 0 && (
           <select
             className="sd-select"
@@ -595,6 +622,15 @@ export function SemanticPanel(props: PanelProps) {
           >
             <CodeIcon />
             {view.kind === 'raw' ? t('action.done') : t('action.yaml')}
+          </button>
+          <button
+            type="button"
+            className="sd-button sd-button-ghost"
+            title={t('settings.title')}
+            aria-label={t('settings.title')}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon />
           </button>
         </div>
       </header>
@@ -690,6 +726,106 @@ export function SemanticPanel(props: PanelProps) {
         </button>
       </footer>
 
+      {settingsOpen && (
+        <div className="sd-dialog-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="sd-dialog sd-settings" onClick={event => event.stopPropagation()}>
+            <div className="sd-dialog-title">{t('settings.title')}</div>
+
+            <div className="sd-settings-section">
+              <div className="sd-settings-title">{t('settings.local')}</div>
+              <div className="sd-setting-row">
+                <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.auto')}</div>
+                  <div className="sd-setting-hint">{t('settings.autoHint')}</div>
+                </div>
+                <button
+                  type="button"
+                  className="sd-switch"
+                  role="switch"
+                  aria-checked={auto}
+                  aria-label={t('settings.auto')}
+                  onClick={toggleAuto}
+                >
+                  <span className="sd-switch-track" data-on={auto}>
+                    <span className="sd-switch-knob" />
+                  </span>
+                </button>
+              </div>
+              <div className="sd-setting-row">
+                <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.notification')}</div>
+                  <div className="sd-setting-hint">{t('settings.notificationHint')}</div>
+                </div>
+                <input
+                  className="sd-number"
+                  type="number"
+                  min={0}
+                  max={600}
+                  step={1}
+                  value={notificationSeconds}
+                  aria-label={t('settings.notification')}
+                  onChange={event => {
+                    const next = Number(event.target.value)
+                    setNotificationSeconds(Number.isFinite(next) ? Math.max(0, Math.min(600, Math.round(next))) : 3)
+                  }}
+                />
+                <span className="sd-hint">{t('settings.seconds')}</span>
+              </div>
+              <div className="sd-setting-row">
+                <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.showLow')}</div>
+                  <div className="sd-setting-hint">{t('settings.showLowHint')}</div>
+                </div>
+                <button
+                  type="button"
+                  className="sd-switch"
+                  role="switch"
+                  aria-checked={showLow}
+                  aria-label={t('settings.showLow')}
+                  onClick={() => setShowLow(value => !value)}
+                >
+                  <span className="sd-switch-track" data-on={showLow}>
+                    <span className="sd-switch-knob" />
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="sd-settings-section">
+              <div className="sd-settings-title">{t('settings.project')}</div>
+              <div className="sd-hint">{t('settings.projectHint')}</div>
+              {(() => {
+                const effective = state?.effective
+                const rows: Array<[string, string]> = effective === undefined
+                  ? []
+                  : [
+                      [t('settings.vocabularyPath'), effective.vocabularyPath],
+                      [t('settings.announceToAgent'), effective.announceToAgent ? t('settings.on') : t('settings.off')],
+                      [t('settings.citationStyle'), effective.citationStyle],
+                      [t('settings.minConfidence'), effective.minConfidence],
+                      [t('settings.budgets'), `${effective.timeoutMs} ms · ${effective.maxFindings} · ${Math.round(effective.maxFileBytes / 1024)} KB · ${effective.maxFiles}`],
+                      [t('settings.detectors'), effective.detectors.join(', ')],
+                    ]
+                return rows.map(([name, value]) => (
+                  <div className="sd-setting-row" key={name}>
+                    <div className="sd-setting-main">
+                      <div className="sd-setting-name">{name}</div>
+                    </div>
+                    <span className="sd-setting-value" title={value}>{value}</span>
+                  </div>
+                ))
+              })()}
+            </div>
+
+            <div className="sd-form-actions">
+              <button type="button" className="sd-button sd-button-primary" onClick={() => setSettingsOpen(false)}>
+                {t('settings.done')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteTarget !== null && (
         <div className="sd-dialog-backdrop" onClick={() => setDeleteTarget(null)}>
           <div className="sd-dialog" onClick={event => event.stopPropagation()}>
@@ -755,35 +891,84 @@ export function SemanticPanel(props: PanelProps) {
                 if (event.key === 'Enter') void confirmAccept()
               }}
             />
-            <div className="sd-form-actions">
-              {concepts.length === 0 && acceptTarget.conceptId === undefined
-                ? (
-                    <button
-                      type="button"
-                      className="sd-button sd-button-primary"
-                      onClick={() => {
-                        const finding = acceptTarget
-                        setAcceptTarget(null)
-                        if (finding !== null) promote(finding)
-                      }}
-                    >
-                      {t('action.new')}
+            {(() => {
+              const current = scopePath(acceptTarget, acceptScope, acceptCustomPath)
+              const covered = coveredFindings(acceptTarget, current)
+              const options = (['file', 'family', 'symbol', 'custom'] as const).map(scope => ({
+                scope,
+                count: coveredFindings(acceptTarget, scopePath(acceptTarget, scope, acceptCustomPath)).length,
+              }))
+              return (
+                <>
+                  <div className="sd-field" style={{ gap: 5 }}>
+                    <span className="sd-label">{t('accept.scope')}</span>
+                    <div className="sd-scope">
+                      {options.map(option => (
+                        <label
+                          key={option.scope}
+                          className="sd-scope-option"
+                          data-active={acceptScope === option.scope}
+                        >
+                          <input
+                            type="radio"
+                            name="sd-accept-scope"
+                            checked={acceptScope === option.scope}
+                            onChange={() => setAcceptScope(option.scope)}
+                          />
+                          <span>{t(`accept.scope.${option.scope}` as MessageKey)}</span>
+                          <span className="sd-scope-count">{option.count}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {acceptScope === 'custom' && (
+                      <input
+                        className="sd-input sd-mono"
+                        value={acceptCustomPath}
+                        placeholder="**/Common/LanguageProvider.cs"
+                        onChange={event => setAcceptCustomPath(event.target.value)}
+                        spellCheck={false}
+                      />
+                    )}
+                    <span className="sd-hint">{tf('accept.covers', { count: covered.length })}</span>
+                    {covered.length > 1 && (
+                      <div className="sd-pathlist">
+                        {covered.slice(0, 6).map(path => <div key={path.id}>{path.path}:{path.line}</div>)}
+                        {covered.length > 6 && <div>… {covered.length - 6}</div>}
+                      </div>
+                    )}
+                  </div>
+                  <div className="sd-form-actions">
+                    {concepts.length === 0 && acceptTarget.conceptId === undefined
+                      ? (
+                          <button
+                            type="button"
+                            className="sd-button sd-button-primary"
+                            onClick={() => {
+                              const finding = acceptTarget
+                              setAcceptTarget(null)
+                              if (finding !== null) promote(finding)
+                            }}
+                          >
+                            {t('action.new')}
+                          </button>
+                        )
+                      : (
+                          <button
+                            type="button"
+                            className="sd-button sd-button-primary"
+                            onClick={() => void confirmAccept()}
+                            disabled={busy === 'accept' || acceptReason.trim() === '' || (acceptTarget.conceptId ?? acceptConceptId) === undefined}
+                          >
+                            {tf('accept.confirm', { count: covered.length })}
+                          </button>
+                        )}
+                    <button type="button" className="sd-button" onClick={() => setAcceptTarget(null)}>
+                      {t('action.cancel')}
                     </button>
-                  )
-                : (
-                    <button
-                      type="button"
-                      className="sd-button sd-button-primary"
-                      onClick={() => void confirmAccept()}
-                      disabled={busy === 'accept' || acceptReason.trim() === '' || (acceptTarget.conceptId ?? acceptConceptId) === undefined}
-                    >
-                      {t('action.accept')}
-                    </button>
-                  )}
-              <button type="button" className="sd-button" onClick={() => setAcceptTarget(null)}>
-                {t('action.cancel')}
-              </button>
-            </div>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}

@@ -21,6 +21,9 @@ const { window } = dom
 for (const key of [
   'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement',
   'HTMLSelectElement', 'Event', 'MouseEvent', 'KeyboardEvent', 'Node', 'getComputedStyle',
+  // The bundle reads `globalThis.localStorage` (the browser realm has no
+  // separate global object), so the harness exposes it explicitly.
+  'localStorage',
 ]) {
   Object.defineProperty(globalThis, key, { value: window[key], configurable: true })
 }
@@ -113,6 +116,17 @@ function mountPanel(props = {}) {
       reactAct(() => { root.render(createElement(panel.component, next)) })
     },
   }
+}
+
+function resetPrefs(value = null) {
+  if (value === null) window.localStorage.removeItem('dsh-semantic-drift:prefs')
+  else window.localStorage.setItem('dsh-semantic-drift:prefs', JSON.stringify(value))
+}
+
+function openSettings(container) {
+  const gear = [...container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '设置')
+  assert.ok(gear !== undefined, 'the settings entry must exist in the header')
+  click(gear)
 }
 
 function click(element) {
@@ -269,7 +283,7 @@ test('accepting an unclassified finding asks which concept and then calls the ho
 
     type('select', 'device.module_name')
     type('#sd-accept-reason', '该写法由外部协议决定')
-    const confirm = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '接受')
+    const confirm = [...container.querySelectorAll('button')].find(button => button.textContent?.startsWith('接受（'))
     assert.ok(confirm !== undefined, 'the dialog must offer a confirm button')
     click(confirm)
     await flush(8)
@@ -286,6 +300,7 @@ test('accepting an unclassified finding asks which concept and then calls the ho
 })
 
 test('the auto switch follows the session workspace and pins when switched off', async () => {
+  resetPrefs()
   const realFetch = globalThis.fetch
   const requested = []
   const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -321,12 +336,18 @@ test('the auto switch follows the session workspace and pins when switched off',
     await flush(8)
     assert.ok(requested.includes('/tmp/ws-b'), 'auto must follow the session when it moves')
 
+    openSettings(container)
+    await flush(2)
     const toggle = container.querySelector('[role="switch"]')
-    assert.ok(toggle !== null, 'the auto switch must exist')
+    assert.ok(toggle !== null, 'the auto switch must exist in settings')
     assert.equal(toggle.getAttribute('aria-checked'), 'true')
     click(toggle)
     await flush(4)
     assert.equal(container.querySelector('[role="switch"]')?.getAttribute('aria-checked'), 'false')
+    const done = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '完成')
+    assert.ok(done !== undefined)
+    click(done)
+    await flush(2)
 
     cwd = '/tmp/ws-c'
     rerender(props())
@@ -385,5 +406,100 @@ test('deleting a concept asks first, then saves the document without it', async 
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
+  }
+})
+
+test('accepting one site can mute the whole file-name family', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const findings = ['Alpha', 'Beta', 'Gamma'].map((unit, index) => ({
+    id: `duplicate-type:${unit}/Enums.cs:Thing:${index + 1}`,
+    detector: 'duplicate-type',
+    confidence: 'high',
+    path: `${unit}/Enums.cs`,
+    line: index + 1,
+    symbol: 'Thing',
+    message: 'example',
+    citation: `${unit}/Enums.cs::Thing`,
+    detail: { rule: 'derived-copy', base: 'Base', members: ['A', 'B'] },
+  }))
+  const accepted = []
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    if (href.includes('/scan')) {
+      return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings, counts: { 'duplicate-type': 3 }, filesScanned: 3, filesSkipped: 0, bytesScanned: 10, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
+    }
+    if (href.includes('/accept')) {
+      accepted.push(JSON.parse(String(init.body ?? '{}')))
+      return json({ ok: true, vocabulary: STATE.vocabulary })
+    }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const unclassified = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('未归类'))
+    click(unclassified)
+    await flush()
+    click(container.querySelector('[aria-label="接受"]'))
+    await flush(2)
+
+    const radios = [...container.querySelectorAll('input[type="radio"]')]
+    assert.equal(radios.length, 4, 'four scopes: file, file-name family, symbol, custom')
+    assert.equal(radios[1].checked, true, 'the family scope is the default when it covers more')
+    const counts = [...container.querySelectorAll('.sd-scope-count')].map(node => node.textContent)
+    // The custom scope starts pre-filled with the family glob, so it covers the
+    // same three sites until the user edits it.
+    assert.deepEqual(counts, ['1', '3', '3', '3'], `scope counts: ${counts.join(',')}`)
+    assert.match(container.textContent ?? '', /将静音 3 条发现/)
+
+    type('#sd-accept-reason', '每程序集一份')
+    const confirm = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('静音 3'))
+    assert.ok(confirm !== undefined, 'the confirm button must show how many will be muted')
+    click(confirm)
+    await flush(8)
+
+    assert.equal(accepted.length, 1)
+    assert.equal(accepted[0].path, '**/Enums.cs', 'the family scope is a file-name glob')
+    assert.equal(accepted[0].symbol, 'Thing')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('a success notice closes itself after the configured seconds', async () => {
+  resetPrefs({ auto: true, notificationSeconds: 0.05, showLow: false })
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    if (href.includes('/save')) return json({ ok: true, vocabulary: STATE.vocabulary })
+    return json({ ok: true, workspace: { path: '/tmp/yne20' }, summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 }, vocabularyIssues: [] })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const newButton = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('新建概念'))
+    click(newButton)
+    await flush()
+    type('#sd-id', 'archit.auto_close')
+    type('#sd-terms', '自动关闭')
+    type('#sd-symbol', 'AutoClose')
+    const save = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
+    click(save)
+    await flush(3)
+    assert.match(container.textContent ?? '', /已保存/)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    await flush(2)
+    assert.doesNotMatch(container.textContent ?? '', /已保存/, 'the success notice must close itself')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
   }
 })

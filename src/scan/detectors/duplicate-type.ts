@@ -1,17 +1,25 @@
 /**
- * D1a — the same type declared in two compilation units with the same members.
+ * D1a — the same type declared in two compilation units.
  *
- * Signal: a type name appears in two or more units (projects/packages) and the
- * member lists are identical. The finding says "duplicate definition": the code
- * works, but two copies now have to be kept in step by hand.
+ * Three outcomes, because "same member names" alone does not mean "copy":
  *
- * The differing branch of the same comparison is {@link contractDriftDetector};
- * both are reported, with different labels, because "copy" and "already
- * inconsistent" call for different work.
+ * - `identical-members`: same names and the same literal values. This is a copy,
+ *   and merging it is a safe suggestion.
+ * - `derived-copy`: same names, different values, and a base type every
+ *   declaration shares. This is a parameterized derivative — the base owns the
+ *   behaviour and each unit fills in its own constants. Merging such a family
+ *   changes which identity the value resolves against (an assembly, a tenant, a
+ *   build target), so the finding must not suggest it.
+ * - `literal-variant`: same names, different values, no shared base. Still not a
+ *   copy, so still no merge suggestion.
+ *
+ * The differing branches used to be reported as duplicates, which trained readers
+ * to dismiss the strongest signal the plugin has.
  *
  * @module dsh-semantic-drift/scan/detectors/duplicate-type
  */
 
+import { compareLiterals, memberValueDiffs, sharedBase } from '../types.ts'
 import { makeFinding } from '../types.ts'
 import type { Detector } from '../types.ts'
 import type { DriftFinding } from '../../protocol.ts'
@@ -26,6 +34,13 @@ export function groupTypesByName(types: readonly TypeDeclaration[]): Map<string,
     else list.push(declaration)
   }
   return groups
+}
+
+/** True when two sorted member lists are identical. */
+export function sameMembers(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false
+  return true
 }
 
 /**
@@ -58,13 +73,6 @@ export function comparableDeclarations(declarations: readonly TypeDeclaration[])
   )
 }
 
-/** True when two sorted member lists are identical. */
-export function sameMembers(left: readonly string[], right: readonly string[]): boolean {
-  if (left.length !== right.length) return false
-  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false
-  return true
-}
-
 export const duplicateTypeDetector: Detector = {
   id: 'duplicate-type',
   finish(ctx): DriftFinding[] {
@@ -75,10 +83,21 @@ export const duplicateTypeDetector: Detector = {
       const units = new Set(comparable.map(declaration => declaration.unit))
       if (units.size < 2) continue
       const primary = comparable[0]
+      const base = sharedBase(comparable)
+      const concept = ctx.concepts.find(item => item.canonical.symbol === name)
       for (const declaration of comparable.slice(1)) {
         if (declaration.unit === primary.unit || declaration.path === primary.path) continue
         if (!sameMembers(declaration.members, primary.members)) continue
-        const concept = ctx.concepts.find(item => item.canonical.symbol === name)
+        const relation = compareLiterals(primary, declaration)
+        const valueDiffs = memberValueDiffs(primary, declaration)
+        const rule = relation === 'same' || relation === 'unknown'
+          ? 'identical-members'
+          : base === undefined ? 'literal-variant' : 'derived-copy'
+        const message = rule === 'identical-members'
+          ? `Type "${name}" is declared again in another compilation unit with the same ${declaration.members.length} members as ${primary.path}${relation === 'same' ? ' and the same values' : ''}.`
+          : rule === 'derived-copy'
+            ? `Type "${name}" derives from ${base ?? 'a shared base'} in another compilation unit and only fills in its own values; this is a parameterized derivative, not a copy — merging it would change which identity those values resolve against.`
+            : `Type "${name}" repeats the member names of ${primary.path} but gives them different values (${valueDiffs.slice(0, 3).map(diff => `${diff.member}: ${diff.right ?? '?'} -> ${diff.left ?? '?'}`).join('; ')}); the two sides no longer agree on what those names mean.`
         findings.push(
           makeFinding(ctx.citationStyle, {
             detector: 'duplicate-type',
@@ -87,13 +106,17 @@ export const duplicateTypeDetector: Detector = {
             line: declaration.line,
             symbol: name,
             ...(concept === undefined ? {} : { conceptId: concept.id }),
-            message: `Type "${name}" is declared again in another compilation unit with the same ${declaration.members.length} members as ${primary.path}.`,
+            message,
             detail: {
               primaryPath: primary.path,
               primaryLine: primary.line,
               unit: declaration.unit,
               members: declaration.members,
-              rule: 'identical-members',
+              rule,
+              sites: comparable.length,
+              ...(base === undefined ? {} : { base }),
+              ...(primary.literals === undefined ? {} : { literals: primary.literals }),
+              ...(valueDiffs.length === 0 ? {} : { valueDiffs }),
             },
           }),
         )

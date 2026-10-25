@@ -16,7 +16,7 @@
  * @module dsh-semantic-drift/scan/detectors/symbol-variant
  */
 
-import { editDistance, leadingToken, makeFinding, normalizedSymbol } from '../types.ts'
+import { editDistance, leadingToken, makeFinding, normalizedSymbol, sharedBase, stableLiterals } from '../types.ts'
 import type { Detector, DetectorFile, DetectorContext } from '../types.ts'
 import type { Concept, DriftFinding } from '../../protocol.ts'
 import { lineAt, lineStarts } from '../symbol-table.ts'
@@ -183,6 +183,61 @@ export function createSymbolVariantDetector(): Detector {
     },
     finish(ctx: DetectorContext): DriftFinding[] {
       const findings = [...pending]
+      // A contract can be renamed without being misspelled: `ResourceProvider`
+      // and `LanguageProvider` share a base, a member set and the stable constant
+      // that identifies the resource kind. Spelling rules cannot see that, and the
+      // vocabulary is the only place that says which name is canonical.
+      const byName = new Map<string, typeof ctx.types>()
+      for (const declaration of ctx.types) {
+        const list = byName.get(declaration.name)
+        if (list === undefined) byName.set(declaration.name, [declaration])
+        else list.push(declaration)
+      }
+      for (const concept of ctx.concepts) {
+        const canonical = concept.canonical.symbol
+        const canonicalDeclarations = byName.get(canonical)
+        if (canonicalDeclarations === undefined || canonicalDeclarations.length < 2) continue
+        const base = sharedBase(canonicalDeclarations)
+        if (base === undefined) continue
+        const stable = stableLiterals(canonicalDeclarations)
+        const members = canonicalDeclarations[0].members
+        if (Object.keys(stable).length === 0 || members.length === 0) continue
+        for (const group of byName.values()) {
+          if (group[0].name === canonical) continue
+          for (const candidate of group) {
+          if (candidate.bases?.includes(base) !== true) continue
+          if (candidate.members.length !== members.length || candidate.members.some(member => !members.includes(member))) continue
+          const matches = Object.entries(stable).every(([member, values]) => {
+            const own = candidate.literals?.[member]
+            return own !== undefined && values.some(value => own.includes(value))
+          })
+          if (!matches) continue
+          if (findings.length >= PENDING_LIMIT) break
+          if (countOf(concept.id) >= PER_CONCEPT_LIMIT) break
+          if (!reported(concept.id, candidate.path, candidate.name)) continue
+          perConcept.set(concept.id, countOf(concept.id) + 1)
+          findings.push(
+            makeFinding(ctx.citationStyle, {
+              detector: 'symbol-variant',
+              confidence: 'medium',
+              path: candidate.path,
+              line: candidate.line,
+              symbol: candidate.name,
+              expected: canonical,
+              conceptId: concept.id,
+              message: `Type "${candidate.name}" carries the same contract as "${canonical}" (base ${base}, same members, same ${Object.keys(stable).join('/')}) under a different name.`,
+              detail: {
+                members,
+                base,
+                literals: stable,
+                sites: group.length,
+                rule: 'contract-alias',
+              },
+            }),
+          )
+          }
+        }
+      }
       // Rule 3 runs over declared names only: that keeps the candidate set
       // bounded by real declarations instead of every identifier in the tree.
       for (const concept of ctx.concepts) {

@@ -31,6 +31,15 @@ function listOf(values: readonly string[] | undefined, limit = 8): string {
   return values.slice(0, limit).join(', ') + (values.length > limit ? ', …' : '')
 }
 
+/** The row's label: a rule-specific name when the rule is more precise than the detector. */
+export function findingLabel(finding: DriftFinding): string {
+  const rule = finding.detail.rule
+  if (rule === 'derived-copy') return t('rule.derived-copy')
+  if (rule === 'literal-variant') return t('rule.literal-variant')
+  if (rule === 'contract-alias') return t('rule.contract-alias')
+  return t(`detector.${finding.detector}`)
+}
+
 /** The evidence line under a finding. */
 export function findingNote(finding: DriftFinding): string {
   const primary = finding.detail.primaryPath ?? ''
@@ -72,7 +81,7 @@ export function DriftList(props: DriftListProps) {
           </span>
           <div className="sd-drift-main">
             <div className="sd-drift-head">
-              <span className="sd-mono sd-muted">{t(`detector.${finding.detector}`)}</span>
+              <span className="sd-mono sd-muted">{findingLabel(finding)}</span>
               <span className="sd-drift-symbol">{finding.symbol}</span>
               {finding.expected !== undefined && finding.expected !== finding.symbol && (
                 <>

@@ -9,7 +9,8 @@
  */
 
 import type { Concept, DriftFinding } from '../protocol.ts'
-import { t } from './locales.ts'
+import { matchesGlob } from '../glob.ts'
+import { t, tf } from './locales.ts'
 import { DriftList } from './DriftList.tsx'
 import { EditIcon, TrashIcon } from './icons.tsx'
 
@@ -18,7 +19,6 @@ export interface ConceptDetailProps {
   concept: Concept | undefined
   findings: readonly DriftFinding[]
   showLow: boolean
-  onShowLow: (value: boolean) => void
   onEdit: (concept: Concept) => void
   /** Ask for confirmation before removing the concept from the vocabulary. */
   onDelete: (concept: Concept) => void
@@ -95,6 +95,13 @@ export function ConceptDetail(props: ConceptDetailProps) {
                     <span className="sd-mono sd-muted">{exception.path === undefined ? '**' : exception.path}</span>
                   </div>
                   <div className="sd-drift-note">{exception.reason}</div>
+                  <div className="sd-meta">
+                    {tf('detail.mutes', {
+                      count: props.findings.filter(finding =>
+                        finding.symbol === exception.symbol && matchesGlob(exception.path, finding.path),
+                      ).length,
+                    })}
+                  </div>
                 </div>
               </div>
             ))}
@@ -107,14 +114,6 @@ export function ConceptDetail(props: ConceptDetailProps) {
           <div className="sd-section-title" style={{ margin: 0 }}>
             {t('detail.drift')} {conceptFindings.length > 0 ? `(${conceptFindings.length})` : ''}
           </div>
-          <label className="sd-meta" style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={props.showLow}
-              onChange={event => props.onShowLow(event.target.checked)}
-            />
-            {t('showLow')}
-          </label>
         </div>
         <DriftList
           findings={conceptFindings}

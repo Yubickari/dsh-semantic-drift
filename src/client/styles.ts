@@ -407,6 +407,71 @@ export const PANEL_CSS = `
   flex-direction: column;
   gap: 12px;
 }
+.sd-settings { width: 560px; max-height: 78vh; overflow: auto; }
+.sd-settings-section { display: flex; flex-direction: column; gap: 10px; }
+.sd-settings-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--dsw-alias-label-secondary);
+}
+.sd-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.sd-setting-main { flex: 1; min-width: 0; }
+.sd-setting-name { font-size: 13px; }
+.sd-setting-hint { font-size: 11px; color: var(--dsw-alias-label-secondary); margin-top: 2px; }
+.sd-setting-value {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-number {
+  width: 72px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  padding: 4px 8px;
+  text-align: right;
+}
+.sd-scope { display: flex; flex-direction: column; gap: 4px; }
+.sd-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.sd-scope-option[data-active='true'] {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.sd-scope-count { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.sd-pathlist {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  max-height: 92px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
 .sd-dialog-backdrop {
   position: absolute;
   inset: 0;
