@@ -272,7 +272,7 @@ compilation, no code generation. One YAML file and a scanner.
 
 ```bash
 pnpm install
-pnpm test          # node --test, 55 tests, no test framework
+pnpm test          # node --test, 59 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

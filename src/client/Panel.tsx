@@ -46,6 +46,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Positioned validation issues of a refusal, or none for a transport failure. */
+function issuesOf(error: unknown): readonly ValidationIssue[] {
+  return error instanceof ApiError ? error.issues : []
+}
+
 /** Save feedback that names the issue count, so a refusal is never a silent no-op. */
 function saveFailureText(error: unknown, fallback: MessageKey, issues: readonly ValidationIssue[]): string {
   const base = errorText(error, fallback)
@@ -531,15 +536,6 @@ export function SemanticPanel(props: PanelProps) {
           }}
         />
         <section className="sd-detail">
-          {notice !== null && (
-            <Notice
-              notice={notice}
-              onDismiss={() => setNotice(null)}
-              {...(notice.kind === 'error' && state === null
-                ? { onRetry: () => void load(requested ?? suggested) }
-                : {})}
-            />
-          )}
           {invalid && view.kind !== 'raw' && (
             <div className="sd-notice" data-kind="error">
               <div className="sd-spread">
@@ -562,6 +558,18 @@ export function SemanticPanel(props: PanelProps) {
           {renderDetail()}
         </section>
       </div>
+
+      {notice !== null && (
+        <div className="sd-notice-dock">
+          <Notice
+            notice={notice}
+            onDismiss={() => setNotice(null)}
+            {...(notice.kind === 'error' && state === null
+              ? { onRetry: () => void load(requested ?? suggested) }
+              : {})}
+          />
+        </div>
+      )}
 
       <footer className="sd-footer">
         <span>
@@ -617,7 +625,7 @@ export function SemanticPanel(props: PanelProps) {
             }}
             onClick={event => event.stopPropagation()}
           >
-            <div className="sd-label">{t('editor.acceptedReason')}</div>
+            <label className="sd-label" htmlFor="sd-accept-reason">{t('editor.acceptedReason')}</label>
             <div className="sd-hint">
               <span className="sd-code">{acceptTarget.symbol}</span> · {acceptTarget.path}:{acceptTarget.line}
             </div>
@@ -643,6 +651,7 @@ export function SemanticPanel(props: PanelProps) {
                   )
             )}
             <input
+              id="sd-accept-reason"
               className="sd-input"
               autoFocus
               value={acceptReason}

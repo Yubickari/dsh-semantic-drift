@@ -196,7 +196,7 @@ concepts:
 
 ```bash
 pnpm install
-pnpm test          # node --test，55 个用例，无测试框架依赖
+pnpm test          # node --test，59 个用例，无测试框架依赖
 pnpm build         # esbuild → lib/index.js（host）+ lib/client.js（浏览器）
 ```
 

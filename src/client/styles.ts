@@ -323,11 +323,13 @@ export const PANEL_CSS = `
 .sd-issue-where { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .sd-issue-title { font-weight: 600; }
 .sd-issue-original { color: var(--dsw-alias-label-secondary); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
+.sd-notice-dock {
+  flex: none;
+  padding: 0 16px 6px;
+}
 .sd-notice {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  margin: 0 0 12px;
+  position: relative;
+  margin: 0;
   padding: 7px 9px 7px 11px;
   border-radius: 7px;
   font-size: 12px;
