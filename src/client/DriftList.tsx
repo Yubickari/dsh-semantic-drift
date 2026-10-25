@@ -37,6 +37,7 @@ export function findingLabel(finding: DriftFinding): string {
   if (rule === 'derived-copy') return t('rule.derived-copy')
   if (rule === 'literal-variant') return t('rule.literal-variant')
   if (rule === 'contract-alias') return t('rule.contract-alias')
+  if (rule === 'canonical-case') return t('rule.canonical-case')
   return t(`detector.${finding.detector}`)
 }
 
@@ -44,8 +45,11 @@ export function findingLabel(finding: DriftFinding): string {
 export function findingNote(finding: DriftFinding): string {
   const primary = finding.detail.primaryPath ?? ''
   switch (finding.detector) {
-    case 'duplicate-type':
-      return tf('drift.sameMembers', { path: primary, count: finding.detail.members?.length ?? 0 })
+    case 'duplicate-type': {
+      const base = tf('drift.sameMembers', { path: primary, count: finding.detail.members?.length ?? 0 })
+      const kinds = finding.detail.kinds
+      return kinds === undefined || kinds.length < 2 ? base : `${base} · ${tf('drift.differentKind', { left: kinds[0], right: kinds[1] })}`
+    }
     case 'contract-drift': {
       const parts = [tf('drift.differFrom', { path: primary })]
       if ((finding.detail.missing?.length ?? 0) > 0) parts.push(tf('drift.missing', { list: listOf(finding.detail.missing) }))
@@ -55,6 +59,7 @@ export function findingNote(finding: DriftFinding): string {
     case 'symbol-variant':
       if (finding.detail.rule === 'normalized') return t('drift.ruleNormalized')
       if (finding.detail.rule === 'confusable') return t('drift.ruleConfusable')
+      if (finding.detail.rule === 'canonical-case') return tf('drift.ruleCanonicalCase', { sites: finding.detail.sites ?? 1 })
       return tf('drift.ruleDistance', { distance: finding.detail.distance ?? 0 })
     case 'term-unmapped':
       return tf('drift.ruleCanonicalMissing', { term: finding.detail.term ?? '' })

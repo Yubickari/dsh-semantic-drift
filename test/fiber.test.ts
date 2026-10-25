@@ -185,14 +185,21 @@ test('the accept route dispatches the exception ops and rejects an unknown one',
   module.apply(harness.ctx, module.Config())
   const route = harness.routes.find(entry => entry.path === '/semantic-drift/accept') as Record<string, unknown>
 
-  const unknown = await callRoute(route, 'POST', { op: 'explode', conceptId: 'device.state' })
+  // A write must name its workspace: falling back to the Host default directory
+  // would create a vocabulary in a project the caller never mentioned.
+  const noWorkspace = await callRoute(route, 'POST', { op: 'add', conceptId: 'device.state', symbol: 'S', reason: 'r' })
+  assert.equal(noWorkspace.status, 400)
+  assert.match(String(noWorkspace.json.message), /must name its workspace/)
+
+  const unknown = await callRoute(route, 'POST', { workspace: root, op: 'explode', conceptId: 'device.state' })
   assert.equal(unknown.status, 400)
   assert.equal(unknown.json.code, 'bad-request')
 
-  const missingSymbol = await callRoute(route, 'POST', { conceptId: 'device.state' })
+  const missingSymbol = await callRoute(route, 'POST', { workspace: root, conceptId: 'device.state' })
   assert.equal(missingSymbol.status, 400, 'no op defaults to add, which needs a symbol')
 
   const missingReason = await callRoute(route, 'POST', {
+    workspace: root,
     op: 'update',
     conceptId: 'device.state',
     symbol: 'DeviceState',
@@ -201,6 +208,7 @@ test('the accept route dispatches the exception ops and rejects an unknown one',
   assert.equal(missingReason.status, 400)
 
   const noConcept = await callRoute(route, 'POST', {
+    workspace: root,
     conceptId: 'device.absent',
     symbol: 'DeviceState',
     reason: 'r',
@@ -259,5 +267,28 @@ test('announceToAgent=false leaves the prompt untouched', async () => {
   assert.equal(harness.tools.length, 5, 'turning the prompt off must not disable the tools')
   const health = harness.routes.find(entry => entry.path === '/semantic-drift/health')
   assert.ok(health !== undefined, 'the health route mounts regardless of the prompt setting')
+  harness.dispose()
+})
+
+test('a vocabulary that cannot be parsed is reported as invalid, not as empty', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  await mkdir(join(root, '.dsh'), { recursive: true })
+  await writeFile(join(root, '.dsh', 'semantics.yaml'), 'version: 1\nconcepts: [\n')
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const list = harness.tools.find(tool => tool.name === 'semantic_list') as {
+    execute(args: Record<string, unknown>, exec: Record<string, unknown>): Promise<Record<string, unknown>>
+  }
+  const listed = await list.execute({}, {})
+  assert.equal(listed.ok, true)
+  assert.equal(listed.valid, false, 'the caller must be able to tell "broken" from "empty"')
+  const issues = listed.issues as Array<{ code: string }>
+  assert.ok(issues.length > 0)
+  assert.equal(issues[0].code, 'yaml-parse')
+
+  const text = (harness.sections[0].text as () => string)()
+  assert.match(text, /cannot be parsed/)
+  assert.doesNotMatch(text, /No concept is recorded yet/, 'an unparsable file is not an empty vocabulary')
   harness.dispose()
 })

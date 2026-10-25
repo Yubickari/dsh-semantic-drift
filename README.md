@@ -255,13 +255,16 @@ same bytes. Hand edits in the raw editor keep their own formatting.
 | `duplicate-type` | high | **same members and same values** in two units: a real copy, and merging it is a safe suggestion |
 | | high | *derived copy*: same member names, different values, one base type every declaration shares — a parameterized derivative, never reported as a merge candidate |
 | | high | *same names, different values*: no shared base, so the two sides simply disagree about what those names mean |
-| `contract-drift` | high | the same type in two units with different members, or with different **values** for the same members |
+| `contract-drift` | high | the same type in two units with different members, or with different **values** for the same members. Skipped when one type shadows its own base (the "missing" members are inherited) or when both are private nested helpers — a local name, not a boundary |
 | `symbol-variant` | medium | a spelling variant of `canonical.symbol` (case/separator form, a known confusable, edit distance ≤ 2), or *same contract, other name*: a type with the same base, member set and stable literal as the canonical type |
+| | medium | *vocabulary spelling is not in the code*: `canonical.symbol` appears nowhere as a code token while a different-case spelling is declared or heads a declaration (`ChannelNUm` recorded, the code writes `ChannelNum…`) |
 | `term-unmapped` | low | a declared term appears in comments or resources, but the canonical symbol never appears in code |
 
 Member **values** are compared too, when they are simple single-line literals. That
 closes a real false negative: two enums whose members swapped values used to look
-identical because only names were compared.
+identical because only names were compared. A copy declared as a `struct` on one
+side and a `class` on the other says so in the message, because the marshalling
+and identity rules differ even when the members do not.
 
 Two filters keep the list short: a variant only fires when the file also mentions
 one of the concept's terms, or when both spellings share the same leading token;
@@ -271,7 +274,8 @@ classes that happen to be named `MainWindow` are not reported.
 Deliberate exclusions, because comparing them produces only noise: entry-point
 classes (`Program`/`Startup` with a `Main`), `partial` declarations (one file
 never shows the whole member list), generated files (`*.Designer.cs`, `*.g.cs`,
-`auto-generated` headers), and declarations with fewer than two members.
+`auto-generated` headers), declarations with fewer than two members, subclasses
+that shadow a base of the same name, and private nested helpers.
 
 Language coverage: C# (`class`/`struct`/`interface`/`record`/`enum`), TypeScript
 (`interface`/`type`/`enum`/`class`), Python (`class`) for the structural
@@ -288,7 +292,12 @@ Five tools, available in every session, sharing the panel's validation:
 | `semantic_get` | one concept by id or symbol, plus its accepted exceptions; `includeDrift` adds a scan |
 | `semantic_upsert` | create or update a concept (`merge` keeps omitted fields, `replace` rebuilds it) |
 | `drift_scan` | structured findings with detector, confidence and citation |
-| `semantic_accept` | manage accepted exceptions: `add` (default), `update` its scope or reason, `remove` one, or `clear` a concept; `reason` is required to add or update |
+| `semantic_accept` | manage accepted exceptions: `add` (default), `update` its scope or reason, `remove` one, or `clear` a concept; `reason` is required to add or update. `previousPath` locates the entry to change — `path` is the scope an update moves *to*, and removing by `path` is refused with that hint instead of silently doing nothing |
+
+A vocabulary file that cannot be parsed is reported as such: `semantic_list` and
+`semantic_get` carry `valid: false` and the first issues, the prompt section says
+the file cannot be parsed instead of pretending the project has no concepts, and
+every write is refused until it is fixed.
 
 Every refusal is a value (`{ ok: false, code, message }`), never an exception, and
 `drift_scan` is documented as read-only. Renaming a data field without calling
@@ -323,8 +332,18 @@ configuration UI. Changing a setting reloads the plugin row.
   cache directory. A scan is computed from disk when you ask for it.
 * **Bounded.** A deadline and a finding cap always end a scan, and the result
   says which one did.
+* **Cheap to repeat.** Parsing a file is most of a scan's cost, and a scan runs
+  after every vocabulary write, so the declarations of unchanged files are reused
+  (keyed by path, size and mtime; a file touched in the last second is always
+  re-parsed). Two identical scans that overlap share one computation. On a 1,666
+  file C# repository a repeat scan takes about 0.55 s instead of 1.3 s, and the
+  numbers a reader sees are computed from disk either way — no findings are
+  cached.
 * **Workspace-scoped.** A request can only read and write inside a registered
-  DSH workspace (or the Host's default directory); anything else is refused.
+  DSH workspace (or the Host's default directory); anything else is refused. A
+  write must name its workspace: a write that omits it is refused rather than
+  falling back to the default directory, so a forgotten field cannot create a
+  vocabulary in a project nobody mentioned.
 * **One deliberate exception to "compute on demand":** the browser keeps the last
   scan per workspace in `sessionStorage` for a bounded time, only to render the
   panel again without rescanning. It never enters the repository, a closed tab
@@ -382,7 +401,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 95 tests, no test framework
+pnpm test          # typecheck + node --test, 103 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

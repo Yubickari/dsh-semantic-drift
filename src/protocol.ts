@@ -123,6 +123,8 @@ export interface FindingDetail {
   valueDiffs?: Array<{ member: string; left?: string; right?: string }>
   /** How many declarations of this contract exist (derived/copy families). */
   sites?: number
+  /** Declaration keywords on each side, when they differ (`struct` vs `class`). */
+  kinds?: string[]
 }
 
 /** One reported drift. */

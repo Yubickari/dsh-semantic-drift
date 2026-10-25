@@ -158,6 +158,8 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
           vocabularyFile: state.vocabulary.relativeFile,
           vocabularyExists: state.vocabulary.exists,
           total: state.vocabulary.document.concepts.length,
+          valid: state.vocabulary.valid,
+          ...(state.vocabulary.issues.length === 0 ? {} : { issues: state.vocabulary.issues.slice(0, 3) }),
           concepts: concepts.map(concept => ({
             ...conceptView(concept),
             ...(counts === undefined ? {} : { driftCount: counts.get(concept.id) ?? 0 }),
@@ -210,6 +212,8 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
         return json({
           ok: true,
           workspace: state.workspace.path,
+          valid: state.vocabulary.valid,
+          ...(state.vocabulary.issues.length === 0 ? {} : { issues: state.vocabulary.issues.slice(0, 3) }),
           concept: conceptView(concept),
           ...(findings === undefined ? {} : { drift: findings, driftTruncated: truncated }),
         })
@@ -337,6 +341,7 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
       'Manage accepted exceptions: add one, change its scope or reason, remove one, or clear a concept.',
       'An exception needs a reason: it is a documented decision, not a silenced warning.',
       '`path` is a glob; without it the symbol is accepted everywhere. Removing an exception makes the findings it muted reappear on the next scan.',
+      'To change or remove an existing exception, locate it with `previousPath` (and `occurrence` when the same symbol and path repeat); `path` is the scope an update moves to, not the lookup key.',
     ].join(' '),
     parameters: {
       action: {
@@ -346,8 +351,8 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
       },
       conceptId: { type: 'string', required: true, description: 'Concept the exception belongs to.' },
       symbol: { type: 'string', description: 'The observed spelling. Required for every action except clear.' },
-      path: { type: 'string', description: 'add/update: new scope as a workspace-relative glob, e.g. "src/Legacy/**". Omit for the whole symbol.' },
-      previousPath: { type: 'string', description: 'update/remove: which existing exception to target. Omit for the whole-symbol one.' },
+      path: { type: 'string', description: 'add/update: the scope to accept or move to, as a workspace-relative glob, e.g. "src/Legacy/**". Omit for the whole symbol. Not a lookup key for update/remove.' },
+      previousPath: { type: 'string', description: 'update/remove: locate the existing exception by its current path. Omit for the whole-symbol one. This is the field that picks the entry to change.' },
       reason: { type: 'string', description: 'Required for add and update. Why this spelling is allowed to stay.' },
       occurrence: { type: 'integer', description: 'Which duplicate to target when a hand-edited file repeats the same symbol and path (default 0).' },
     },

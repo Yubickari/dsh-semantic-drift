@@ -13,7 +13,7 @@
 import { makeFinding } from '../types.ts'
 import type { Detector } from '../types.ts'
 import type { DriftFinding } from '../../protocol.ts'
-import { comparableDeclarations, groupTypesByName } from './duplicate-type.ts'
+import { comparableDeclarations, groupTypesByName, isLocalHelper, shadowsBase } from './duplicate-type.ts'
 
 export const contractDriftDetector: Detector = {
   id: 'contract-drift',
@@ -28,6 +28,12 @@ export const contractDriftDetector: Detector = {
       const primaryMembers = new Set(primary.members)
       for (const declaration of comparable.slice(1)) {
         if (declaration.unit === primary.unit || declaration.path === primary.path) continue
+        // A type that shadows its own base inherits the "missing" members; the
+        // difference is the class hierarchy, not a drifting contract.
+        if (shadowsBase(declaration, primary) || shadowsBase(primary, declaration)) continue
+        // Two private nested helpers with the same short name are local names,
+        // not a boundary between two parts of the system.
+        if (isLocalHelper(primary) && isLocalHelper(declaration)) continue
         const members = new Set(declaration.members)
         if (members.size === primaryMembers.size && [...members].every(member => primaryMembers.has(member))) continue
         const missing = primary.members.filter(member => !members.has(member))

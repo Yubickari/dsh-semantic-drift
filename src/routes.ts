@@ -119,6 +119,25 @@ function optionalString(value: unknown): string | undefined {
 }
 
 /**
+ * The workspace of a write request.
+ *
+ * Reads may fall back to the Host's default directory, but a write may not: a
+ * request that forgot the workspace would otherwise create `.dsh/semantics.yaml`
+ * in a project the caller never named. The panel always sends one, so this only
+ * rejects a caller that meant to be explicit and was not.
+ */
+function writeWorkspace(value: unknown): string {
+  const workspace = optionalString(value)
+  if (workspace === undefined) {
+    throw new SemanticError(
+      'bad-request',
+      'A write request must name its workspace (`workspace` in the body); refusing to fall back to the Host default directory.',
+    )
+  }
+  return workspace
+}
+
+/**
  * Build the route table for one activation.
  * @param service - the shared host service.
  * @param diagnostics - what this activation mounted, for the health route.
@@ -194,7 +213,7 @@ export function makeSemanticRoutes(
         if (document === undefined || typeof document !== 'object') {
           return writeJson(res, 400, failure('bad-request', '`document` is required.'))
         }
-        const vocabulary = await service.save(optionalString(body.workspace), document)
+        const vocabulary = await service.save(writeWorkspace(body.workspace), document)
         writeJson(res, 200, { ok: true, vocabulary })
       } catch (error) {
         sendFailure(res, error)
@@ -211,7 +230,7 @@ export function makeSemanticRoutes(
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const body = await readJson(req, RAW_LIMIT)
         if (typeof body.text !== 'string') return writeJson(res, 400, failure('bad-request', '`text` is required.'))
-        const vocabulary = await service.saveRaw(optionalString(body.workspace), body.text)
+        const vocabulary = await service.saveRaw(writeWorkspace(body.workspace), body.text)
         writeJson(res, 200, { ok: true, vocabulary })
       } catch (error) {
         sendFailure(res, error)
@@ -227,7 +246,7 @@ export function makeSemanticRoutes(
         if (req.method !== 'POST') return writeJson(res, 405, failure('method-not-allowed', 'Use POST.'))
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const body = await readJson(req, 16 * 1_024)
-        const vocabulary = await service.init(optionalString(body.workspace))
+        const vocabulary = await service.init(writeWorkspace(body.workspace))
         writeJson(res, 200, { ok: true, vocabulary })
       } catch (error) {
         sendFailure(res, error)
@@ -265,7 +284,7 @@ export function makeSemanticRoutes(
         const occurrence = typeof body.occurrence === 'number' && Number.isInteger(body.occurrence)
           ? body.occurrence
           : undefined
-        const result = await service.changeException(optionalString(body.workspace), {
+        const result = await service.changeException(writeWorkspace(body.workspace), {
           op,
           conceptId,
           ...(symbol === undefined ? {} : { symbol }),

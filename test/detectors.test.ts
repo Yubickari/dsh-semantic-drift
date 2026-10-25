@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DEFAULT_EXCLUDES } from '../src/store.ts'
@@ -155,4 +155,134 @@ test('without a vocabulary no alias is reported', async () => {
   })
   const summary = await scan(root)
   assert.equal(summary.findings.some(entry => entry.detail.rule === 'contract-alias'), false)
+})
+
+test('a canonical spelling that exists nowhere but in another case is reported', async () => {
+  const root = await workspace({
+    'A/Channel.cs': 'namespace A\n{\n    public class ChannelNum\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
+    'B/Channel.cs': 'namespace B\n{\n    public class ChannelNum\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
+  })
+  const summary = await scan(root, [
+    { id: 'archit.channel_num', terms: ['通道数'], kind: 'quantity', canonical: { symbol: 'ChannelNUm' } },
+  ])
+  const finding = summary.findings.find(entry => entry.detail.rule === 'canonical-case')
+  assert.ok(finding !== undefined, 'a canonical that appears nowhere must be reported')
+  assert.equal(finding.symbol, 'ChannelNum')
+  assert.equal(finding.expected, 'ChannelNUm')
+  assert.equal(finding.conceptId, 'archit.channel_num')
+  assert.equal(finding.detail.sites, 2)
+  assert.equal(summary.findings.filter(entry => entry.detail.rule === 'canonical-case').length, 1, 'one finding per concept')
+})
+
+test('a type that shadows its own base is not contract drift', async () => {
+  const root = await workspace({
+    'Base/NetworkConfig.cs': `namespace Base.File
+{
+    public class NetworkConfig
+    {
+        public string FileName { get; set; }
+        public string FolderName { get; set; }
+        public int Retries { get; set; }
+    }
+}
+`,
+    'App/NetworkConfig.cs': `namespace App
+{
+    public class NetworkConfig : Base.File.NetworkConfig
+    {
+        public bool Enabled { get; set; }
+        public string Endpoint { get; set; }
+    }
+}
+`,
+  })
+  const summary = await scan(root)
+  assert.equal(
+    summary.findings.some(finding => finding.symbol === 'NetworkConfig' && finding.detector === 'contract-drift'),
+    false,
+    'inherited members are not a drifting contract',
+  )
+})
+
+test('two private nested helpers with the same short name are not contract drift', async () => {
+  const root = await workspace({
+    'A/Policy.cs': `namespace A
+{
+    public class FileTransferPolicy
+    {
+        private sealed class Lease
+        {
+            public int Bytes { get; set; }
+            public int Seconds { get; set; }
+        }
+    }
+}
+`,
+    'B/Session.cs': `namespace B
+{
+    public class SlotDataConfigEditSession
+    {
+        private sealed class Lease
+        {
+            public string Owner { get; set; }
+            public long Version { get; set; }
+        }
+    }
+}
+`,
+  })
+  const summary = await scan(root)
+  assert.equal(
+    summary.findings.some(finding => finding.symbol === 'Lease' && finding.detector === 'contract-drift'),
+    false,
+    'a nested private helper is a local name',
+  )
+})
+
+test('identical members declared as different kinds say so', async () => {
+  const root = await workspace({
+    'Debug/Params.cs': 'namespace Debug\n{\n    public struct Params_PMT\n    {\n        public int Mode { get; set; }\n        public int Value { get; set; }\n    }\n}\n',
+    'Sys/Params.cs': 'namespace Sys\n{\n    public class Params_PMT\n    {\n        public int Mode { get; set; }\n        public int Value { get; set; }\n    }\n}\n',
+  })
+  const summary = await scan(root)
+  const finding = summary.findings.find(entry => entry.symbol === 'Params_PMT' && entry.detail.rule === 'identical-members')
+  assert.ok(finding !== undefined)
+  assert.deepEqual(finding.detail.kinds, ['struct', 'class'])
+  assert.match(finding.message, /as a struct there and a class here/)
+})
+
+test('the parse cache never hides an edited file', async () => {
+  const root = await workspace({
+    'A/Thing.cs': 'namespace A\n{\n    public class Thing\n    {\n        public int Alpha { get; set; }\n        public int Beta { get; set; }\n    }\n}\n',
+    'B/Thing.cs': 'namespace B\n{\n    public class Thing\n    {\n        public int Alpha { get; set; }\n        public int Beta { get; set; }\n    }\n}\n',
+  })
+  const old = new Date(Date.now() - 60_000)
+  await utimes(join(root, 'A/Thing.cs'), old, old)
+  await utimes(join(root, 'B/Thing.cs'), old, old)
+  const first = await scan(root)
+  assert.equal(first.findings.some(entry => entry.symbol === 'Thing'), true)
+
+  // Same size, different members, an mtime far enough back to be cache-eligible.
+  await writeFile(join(root, 'B/Thing.cs'), 'namespace B\n{\n    public class Thing\n    {\n        public int Gamma { get; set; }\n        public int Delta { get; set; }\n    }\n}\n')
+  await utimes(join(root, 'B/Thing.cs'), old, old)
+  const second = await scan(root)
+  assert.equal(
+    second.findings.some(entry => entry.symbol === 'Thing' && entry.detail.rule === 'identical-members'),
+    false,
+    'a changed file must be re-parsed',
+  )
+})
+
+test('a canonical used only as the head of other names is still reported', async () => {
+  const root = await workspace({
+    'A/ChannelService.cs': 'namespace A\n{\n    public sealed class ChannelNumService\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n\n    public sealed class ChannelNumChangedEventArgs\n    {\n        public int Count { get; set; }\n        public int Index { get; set; }\n    }\n}\n',
+  })
+  const summary = await scan(root, [
+    { id: 'archit.channel_num', terms: ['通道数'], kind: 'quantity', canonical: { symbol: 'ChannelNUm' } },
+  ])
+  const finding = summary.findings.find(entry => entry.detail.rule === 'canonical-case')
+  assert.ok(finding !== undefined, 'the spelling never appears, but its prefix does')
+  assert.equal(finding.symbol, 'ChannelNumService')
+  assert.match(finding.message, /ChannelNumChangedEventArgs/)
+  assert.equal(finding.detail.sites, 2)
 })

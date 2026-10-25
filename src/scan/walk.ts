@@ -37,6 +37,8 @@ export interface WalkedFile {
   relPath: string
   absPath: string
   bytes: number
+  /** Modification time, used to reuse the parse of an unchanged file. */
+  mtimeMs: number
 }
 
 /** Walk outcome. */
@@ -138,9 +140,11 @@ export async function walkWorkspace(options: WalkOptions): Promise<WalkResult> {
       if (matchesGlobs(options.excludes, childRel, false)) continue
       const absolute = join(root, childRel.split('/').join(sep))
       let size = 0
+      let mtimeMs = 0
       try {
         const info = await stat(absolute)
         size = info.size
+        mtimeMs = info.mtimeMs
       } catch {
         skippedUnreadable++
         continue
@@ -149,7 +153,7 @@ export async function walkWorkspace(options: WalkOptions): Promise<WalkResult> {
         skippedBySize++
         continue
       }
-      files.push({ relPath: childRel, absPath: absolute, bytes: size })
+      files.push({ relPath: childRel, absPath: absolute, bytes: size, mtimeMs })
       if (files.length >= maxFiles) {
         truncated = true
         break

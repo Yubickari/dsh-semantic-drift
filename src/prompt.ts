@@ -33,12 +33,17 @@ const MAX_LINES = 200
 /** Concepts listed at most; the rest is summarized. */
 const MAX_CONCEPTS = 120
 
-/** Cached concept lines, keyed by absolute vocabulary path. */
+/** What one vocabulary file contributed to the section. */
+type VocabularyBody =
+  | { kind: 'missing' }
+  | { kind: 'invalid'; message: string }
+  | { kind: 'concepts'; lines: string[]; count: number }
+
+/** Cached body, keyed by absolute vocabulary path. */
 interface CachedLines {
   mtimeMs: number
   size: number
-  lines: string[]
-  count: number
+  body: VocabularyBody
 }
 
 const cache = new Map<string, CachedLines>()
@@ -53,30 +58,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Read the concept lines of one vocabulary file, tolerating any hand edit. */
-function conceptLines(file: string): { lines: string[]; count: number } | undefined {
+function conceptLines(file: string): VocabularyBody {
   let info
   try {
     info = statSync(file)
   } catch {
-    return undefined
+    return { kind: 'missing' }
   }
   const cached = cache.get(file)
   if (cached !== undefined && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
-    return cached
+    return cached.body
   }
   let text: string
   try {
     text = readFileSync(file, 'utf8')
   } catch {
-    return undefined
+    return { kind: 'missing' }
   }
   let raw: unknown
   try {
     raw = parseYaml(text)
-  } catch {
-    return undefined
+  } catch (error) {
+    const body: VocabularyBody = { kind: 'invalid', message: oneLine(error instanceof Error ? error.message : String(error)) }
+    cache.set(file, { mtimeMs: info.mtimeMs, size: info.size, body })
+    return body
   }
-  if (!isRecord(raw) || !Array.isArray(raw.concepts)) return undefined
+  if (!isRecord(raw) || !Array.isArray(raw.concepts)) {
+    const body: VocabularyBody = { kind: 'invalid', message: 'the file is not a mapping with a `concepts` list' }
+    cache.set(file, { mtimeMs: info.mtimeMs, size: info.size, body })
+    return body
+  }
   const concepts = raw.concepts.filter(isRecord) as Array<Record<string, unknown>>
   const lines: string[] = []
   for (const entry of concepts.slice(0, MAX_CONCEPTS)) {
@@ -91,9 +102,9 @@ function conceptLines(file: string): { lines: string[]; count: number } | undefi
     const head = kind === undefined ? `${id} -> ${symbol}` : `${id} (${kind}) -> ${symbol}`
     lines.push(note === '' ? `- ${head}` : `- ${head}: ${note}`)
   }
-  const result: CachedLines = { mtimeMs: info.mtimeMs, size: info.size, lines, count: concepts.length }
-  cache.set(file, result)
-  return result
+  const body: VocabularyBody = { kind: 'concepts', lines, count: concepts.length }
+  cache.set(file, { mtimeMs: info.mtimeMs, size: info.size, body })
+  return body
 }
 
 /** The vocabulary file that applies to the calling session, when it can be found. */
@@ -139,16 +150,23 @@ export function buildPromptText(ctx: unknown, config: SemanticConfig, workspace:
     '- Name the thing exactly as `canonical.symbol` spells it.',
     '- If the concept is missing from the list below, call `semantic_upsert` to register it first.',
     '- If a known spelling must stay, call `semantic_accept` with a reason.',
+    '- If a name has to differ from the canonical (an external contract, legacy serialization), record that deviation with `semantic_accept` instead of leaving it silent.',
   ]
   let body: string[]
   try {
     const { file, workspacePath } = vocabularyFileFor(ctx, config, workspace)
     const lines = conceptLines(file)
-    if (lines === undefined) {
+    if (lines.kind === 'missing') {
       body = [
         '',
         `No concept is recorded yet for ${basename(workspacePath)} (expected vocabulary file: \`${file}\`).`,
         'When you introduce a domain term, register it with `semantic_upsert`; a vocabulary that starts empty stays empty.',
+      ]
+    } else if (lines.kind === 'invalid') {
+      body = [
+        '',
+        `The vocabulary file \`${file}\` cannot be parsed (${lines.message}).`,
+        'Treat the vocabulary as unknown, not as empty: reads report no concepts, and every write is refused until the file is fixed by hand.',
       ]
     } else {
       body = ['', `Concepts (${lines.count}):`, ...lines.lines]

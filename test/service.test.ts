@@ -222,6 +222,44 @@ test('a removed exception lets its findings reappear on the next scan', async ()
   assert.equal(back.summary.findings.some(finding => finding.detector === 'contract-drift'), true)
 })
 
+test('removing by the new-scope field says so instead of silently doing nothing', async () => {
+  const root = await fixture()
+  const service = createSemanticService({ config: config(), workspace: resolverFor(root), version: '0.1.0' })
+  await service.init()
+  await service.upsert(undefined, {
+    concept: { id: 'device.status', terms: ['设备状态'], kind: 'status', canonical: { symbol: 'DeviceStatus' } },
+  })
+  await service.changeException(undefined, { conceptId: 'device.status', symbol: 'Status', path: 'Alpha/**', reason: 'a' })
+
+  await assert.rejects(
+    () => service.changeException(undefined, {
+      op: 'remove',
+      conceptId: 'device.status',
+      symbol: 'Status',
+      path: 'Alpha/**',
+    }),
+    (error: unknown) => error instanceof SemanticError
+      && error.code === 'not-found'
+      && /previousPath/.test(error.message),
+    'path is not a lookup key; the refusal has to say which field is',
+  )
+
+  const removed = await service.changeException(undefined, {
+    op: 'remove',
+    conceptId: 'device.status',
+    symbol: 'Status',
+    previousPath: 'Alpha/**',
+  })
+  assert.equal(removed.changed, 'removed')
+  const again = await service.changeException(undefined, {
+    op: 'remove',
+    conceptId: 'device.status',
+    symbol: 'Status',
+    previousPath: 'Alpha/**',
+  })
+  assert.equal(again.changed, 'unchanged', 'a genuine repeat is still idempotent')
+})
+
 test('a save of an invalid document is refused and leaves the file alone', async () => {
   const root = await fixture()
   const service = createSemanticService({ config: config(), workspace: resolverFor(root), version: '0.1.0' })

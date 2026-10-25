@@ -194,7 +194,7 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     }
   }
 
-  const scan = async (requested: string | undefined, overrides: ScanOverrides = {}): Promise<ScanResponse> => {
+  const scanOnce = async (requested: string | undefined, overrides: ScanOverrides = {}): Promise<ScanResponse> => {
     const target = await workspace.resolve(requested)
     const vocabulary = await load(target)
     const configured = config.detectors ?? []
@@ -334,7 +334,20 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     }
 
     if (found === undefined) {
-      if (op === 'remove') return { state: current, concept, changed: 'unchanged' }
+      if (op === 'remove') {
+        // A caller that passed `path` to remove meant to locate the entry by it.
+        // Removing is idempotent, but silently reporting "unchanged" for a wrong
+        // field is how an exception survives a removal someone believes happened.
+        const misplaced = input.previousPath === undefined && normalizePath(input.path) !== undefined
+          && existing.some(entry => entry.symbol === symbol && (entry.path ?? '') === (normalizePath(input.path) ?? ''))
+        if (misplaced) {
+          throw new SemanticError(
+            'not-found',
+            `No accepted exception for ${symbol} (whole symbol). To remove the entry at ${normalizePath(input.path)}, pass it as \`previousPath\`: \`path\` is the scope an update moves to.`,
+          )
+        }
+        return { state: current, concept, changed: 'unchanged' }
+      }
       throw new SemanticError(
         'not-found',
         `No accepted exception for ${symbol}${matchPath === undefined ? ' (whole symbol)' : ` at ${matchPath}`}.`,
@@ -398,6 +411,31 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
       throw new SemanticError('invalid-vocabulary', 'The concept was not written because the document failed validation.', result.issues)
     }
     return { state: result.state, concept: next, created: existing === undefined }
+  }
+
+  /**
+   * Scans that are already running, keyed by what was asked for.
+   *
+   * The panel rescans after every write and an agent may ask at the same time;
+   * two identical scans over the same tree would read and parse every file
+   * twice. Sharing the in-flight promise keeps the result identical while
+   * halving the work.
+   */
+  const inFlight = new Map<string, Promise<ScanResponse>>()
+  const scan = (requested: string | undefined, overrides: ScanOverrides = {}): Promise<ScanResponse> => {
+    const key = [
+      requested ?? '',
+      overrides.detectors?.join(',') ?? '',
+      overrides.minConfidence ?? '',
+      overrides.paths?.join(',') ?? '',
+      overrides.maxFindings ?? '',
+      overrides.timeoutMs ?? '',
+    ].join('|')
+    const running = inFlight.get(key)
+    if (running !== undefined) return running
+    const promise = scanOnce(requested, overrides).finally(() => inFlight.delete(key))
+    inFlight.set(key, promise)
+    return promise
   }
 
   return {

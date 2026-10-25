@@ -80,6 +80,8 @@ export function createSymbolVariantDetector(): Detector {
   let pending: DriftFinding[] = []
   let seen: Set<string> = new Set()
   let perConcept: Map<string, number> = new Map()
+  /** Concepts whose canonical spelling appears verbatim somewhere in the code. */
+  let canonicalSeen: Set<string> = new Set()
 
   const reported = (conceptId: string, path: string, symbol: string): boolean => {
     const key = `${conceptId}|${path}|${symbol}`
@@ -114,6 +116,7 @@ export function createSymbolVariantDetector(): Detector {
       pending = []
       seen = new Set()
       perConcept = new Map()
+      canonicalSeen = new Set()
       patterns = []
       for (const concept of ctx.concepts) {
         const canonical = concept.canonical.symbol
@@ -155,6 +158,12 @@ export function createSymbolVariantDetector(): Detector {
         }
         const pattern = patterns.find(candidate => candidate.test.test(symbol))
         if (pattern === undefined) continue
+        // Remember a verbatim hit: a canonical that the code does use somewhere is
+        // a real name, even if no type is declared with it.
+        if (symbol === pattern.canonical) {
+          canonicalSeen.add(pattern.concept.id)
+          continue
+        }
         if (symbol.toLowerCase() === pattern.canonicalLower) continue
         if (countOf(pattern.concept.id) >= PER_CONCEPT_LIMIT) continue
         if (!sharesEvidence(pattern, symbol, input.file.text)) continue
@@ -238,6 +247,60 @@ export function createSymbolVariantDetector(): Detector {
           }
         }
       }
+      // A canonical spelling that appears nowhere while a case-only variant is
+      // everywhere is the most dangerous kind of drift: the vocabulary is wrong
+      // and every rule that compares spellings stays silent. The variant may be a
+      // whole declaration (`ChannelNum`) or the leading token of one
+      // (`ChannelNumService`), so both are accepted.
+      for (const concept of ctx.concepts) {
+        const canonical = concept.canonical.symbol
+        if (canonical.length < 3) continue
+        if ((byName.get(canonical)?.length ?? 0) > 0) continue
+        // The spelling is in use (a property, a parameter): the vocabulary is not
+        // wrong about it, there is simply no type by that name.
+        if (canonicalSeen.has(concept.id)) continue
+        const lower = canonical.toLowerCase()
+        const exact = [...byName.entries()].filter(([name]) => name !== canonical && name.toLowerCase() === lower)
+        const prefixed = exact.length > 0
+          ? []
+          : [...byName.entries()].filter(([name]) =>
+              name.length > canonical.length
+              && name.slice(0, canonical.length).toLowerCase() === lower
+              // A camel-case or underscore boundary, so `ChannelNumber` (a
+              // different word) is not taken for `ChannelNum`.
+              && /[A-Z_$]/.test(name.charAt(canonical.length)))
+        const sample = exact[0] ?? prefixed[0]
+        if (sample === undefined) continue
+        const [spelling, group] = sample
+        if (findings.length >= PENDING_LIMIT) break
+        if (countOf(concept.id) >= PER_CONCEPT_LIMIT) break
+        if (!reported(concept.id, group[0].path, spelling)) continue
+        perConcept.set(concept.id, countOf(concept.id) + 1)
+        const files = new Set(group.map(declaration => declaration.path)).size
+        const examples = prefixed.slice(0, 3).map(([name]) => name)
+        const message = exact.length > 0
+          ? `The vocabulary spells concept ${concept.id} as "${canonical}", which appears nowhere in the repository; the code spells it "${spelling}" (${group.length} declarations in ${files} files).`
+          : `The vocabulary spells concept ${concept.id} as "${canonical}", which appears nowhere in the repository; the code writes "${spelling}" at the head of ${prefixed.length} declaration(s)${examples.length === 0 ? '' : `, e.g. ${examples.join(', ')}`}.`
+        findings.push(
+          makeFinding(ctx.citationStyle, {
+            detector: 'symbol-variant',
+            confidence: 'medium',
+            path: group[0].path,
+            line: group[0].line,
+            symbol: spelling,
+            expected: canonical,
+            conceptId: concept.id,
+            message,
+            detail: {
+              members: [canonical],
+              term: concept.terms[0],
+              sites: exact.length > 0 ? group.length : prefixed.length,
+              rule: 'canonical-case',
+            },
+          }),
+        )
+      }
+
       // Rule 3 runs over declared names only: that keeps the candidate set
       // bounded by real declarations instead of every identifier in the tree.
       for (const concept of ctx.concepts) {

@@ -94,6 +94,14 @@ export interface TypeDeclaration {
   literals?: Record<string, string[]>
   /** Members declared with `override`. */
   overrides?: string[]
+  /**
+   * True when the declaration sits inside another type or function body. A
+   * nested helper is invisible outside its host, so two of them sharing a short
+   * name are a naming coincidence rather than a shared contract.
+   */
+  nested?: boolean
+  /** Declared visibility, when the language states one. */
+  visibility?: 'public' | 'protected' | 'internal' | 'private' | 'file'
 }
 
 /** Language of a path, or `other` when the file is not read at all. */
@@ -470,24 +478,50 @@ export function extractTypes(file: SourceFile, unitOf: (relPath: string) => stri
   const out: TypeDeclaration[] = []
   const pattern = language === 'csharp' ? CS_TYPE : TS_TYPE
   pattern.lastIndex = 0
+  interface Parsed {
+    keyword: string
+    name: string
+    start: number
+    after: number
+    open: number
+    close: number
+    partial: boolean
+    visibility?: TypeDeclaration['visibility']
+  }
+  const parsed: Parsed[] = []
   let match: RegExpExecArray | null
   while ((match = pattern.exec(masked.code)) !== null) {
-    const keyword = language === 'csharp' ? match[1] : match[1]
-    const name = language === 'csharp' ? match[2] : match[2]
+    const keyword = match[1]
+    const name = match[2]
     const declarationStart = match.index + match[0].indexOf(keyword)
     const lineStart = masked.code.lastIndexOf('\n', declarationStart) + 1
-    const partial = /\bpartial\b/.test(masked.code.slice(lineStart, declarationStart))
+    const prefix = masked.code.slice(lineStart, declarationStart)
     const open = indexOfBrace(masked.code, pattern.lastIndex)
     if (open === -1) continue
     const close = findMatchingBrace(masked.code, open)
     if (close === -1) continue
-    const body = masked.code.slice(open + 1, close)
-    const originalBody = file.text.slice(open + 1, close)
+    parsed.push({
+      keyword,
+      name,
+      start: declarationStart,
+      after: pattern.lastIndex,
+      open,
+      close,
+      partial: /\bpartial\b/.test(prefix),
+      ...(visibilityOf(prefix) === undefined ? {} : { visibility: visibilityOf(prefix) as TypeDeclaration['visibility'] }),
+    })
+  }
+  const nested = (item: Parsed): boolean =>
+    parsed.some(other => other.open < item.start && item.start < other.close)
+  for (const item of parsed) {
+    const { name, keyword } = item
+    const body = masked.code.slice(item.open + 1, item.close)
+    const originalBody = file.text.slice(item.open + 1, item.close)
     const members = bodyMembers(body, keyword, name, language)
     if (keyword === 'record' || language === 'kotlin') {
-      for (const extra of positionalMembers(masked.code, pattern.lastIndex, open)) members.push(extra)
+      for (const extra of positionalMembers(masked.code, item.after, item.open)) members.push(extra)
     }
-    const bases = language === 'csharp' ? baseTypes(masked.code.slice(pattern.lastIndex, open)) : undefined
+    const bases = language === 'csharp' ? baseTypes(masked.code.slice(item.after, item.open)) : undefined
     const literals = {
       ...(memberLiterals(originalBody) ?? {}),
       ...(keyword === 'enum' ? enumLiterals(originalBody) : {}),
@@ -498,16 +532,24 @@ export function extractTypes(file: SourceFile, unitOf: (relPath: string) => stri
       keyword,
       members: [...new Set(members)].sort(),
       path: file.relPath,
-      line: lineAt(starts, declarationStart),
+      line: lineAt(starts, item.start),
       unit: unitOf(file.relPath),
       language,
-      ...(partial ? { partial: true } : {}),
+      ...(item.partial ? { partial: true } : {}),
       ...(bases === undefined ? {} : { bases }),
       ...(Object.keys(literals).length === 0 ? {} : { literals }),
       ...(overrides.length === 0 ? {} : { overrides }),
+      ...(nested(item) ? { nested: true } : {}),
+      ...(item.visibility === undefined ? {} : { visibility: item.visibility }),
     })
   }
   return out
+}
+
+/** Visibility keyword in the text before a declaration, if it states one. */
+function visibilityOf(prefix: string): TypeDeclaration['visibility'] | undefined {
+  const match = /\b(private|protected|internal|public|file)\b/.exec(prefix)
+  return match === null ? undefined : (match[1] as TypeDeclaration['visibility'])
 }
 
 const PY_CLASS = /^([ \t]*)class\s+([A-Za-z_]\w*)/gm
@@ -549,6 +591,8 @@ function extractPythonTypes(file: SourceFile, unitOf: (relPath: string) => strin
       line: lineAt(starts, starts[index] ?? 0),
       unit: unitOf(file.relPath),
       language: 'python',
+      ...(baseIndent > 0 ? { nested: true } : {}),
+      visibility: name.startsWith('__') ? 'private' : name.startsWith('_') ? 'protected' : 'public',
     })
   }
   return out

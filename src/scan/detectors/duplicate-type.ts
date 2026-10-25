@@ -73,6 +73,32 @@ export function comparableDeclarations(declarations: readonly TypeDeclaration[])
   )
 }
 
+/** Last dotted segment of a base reference, generic arguments stripped. */
+export function simpleBaseName(reference: string): string {
+  const withoutGenerics = reference.replace(/<[^>]*>/g, '')
+  return (withoutGenerics.split('.').at(-1) ?? withoutGenerics).trim()
+}
+
+/**
+ * True when `left` names `right`'s simple name in its base list.
+ *
+ * A type that shadows its own base (the same simple name in another namespace)
+ * is a subclass, not a second definition: what looks like "missing members" is
+ * inheritance, and reporting it as drift is a false positive.
+ */
+export function shadowsBase(left: TypeDeclaration, right: TypeDeclaration): boolean {
+  return (left.bases ?? []).some(base => simpleBaseName(base) === right.name)
+}
+
+/**
+ * A type nobody outside its enclosing type can see: a private nested helper.
+ * Two helpers in different files that happen to share a short name are a naming
+ * coincidence, not a shared contract.
+ */
+export function isLocalHelper(declaration: TypeDeclaration): boolean {
+  return declaration.nested === true && declaration.visibility !== 'public'
+}
+
 export const duplicateTypeDetector: Detector = {
   id: 'duplicate-type',
   finish(ctx): DriftFinding[] {
@@ -93,8 +119,9 @@ export const duplicateTypeDetector: Detector = {
         const rule = relation === 'same' || relation === 'unknown'
           ? 'identical-members'
           : base === undefined ? 'literal-variant' : 'derived-copy'
+        const kindDiffers = primary.keyword !== declaration.keyword
         const message = rule === 'identical-members'
-          ? `Type "${name}" is declared again in another compilation unit with the same ${declaration.members.length} members as ${primary.path}${relation === 'same' ? ' and the same values' : ''}.`
+          ? `Type "${name}" is declared again in another compilation unit with the same ${declaration.members.length} members as ${primary.path}${relation === 'same' ? ' and the same values' : ''}${kindDiffers ? `, but as a ${primary.keyword} there and a ${declaration.keyword} here` : ''}.`
           : rule === 'derived-copy'
             ? `Type "${name}" derives from ${base ?? 'a shared base'} in another compilation unit and only fills in its own values; this is a parameterized derivative, not a copy — merging it would change which identity those values resolve against.`
             : `Type "${name}" repeats the member names of ${primary.path} but gives them different values (${valueDiffs.slice(0, 3).map(diff => `${diff.member}: ${diff.right ?? '?'} -> ${diff.left ?? '?'}`).join('; ')}); the two sides no longer agree on what those names mean.`
@@ -117,6 +144,7 @@ export const duplicateTypeDetector: Detector = {
               ...(base === undefined ? {} : { base }),
               ...(primary.literals === undefined ? {} : { literals: primary.literals }),
               ...(valueDiffs.length === 0 ? {} : { valueDiffs }),
+              ...(kindDiffers ? { kinds: [primary.keyword, declaration.keyword] } : {}),
             },
           }),
         )

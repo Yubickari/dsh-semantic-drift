@@ -35,6 +35,24 @@ import { makeUnitResolver, walkWorkspace } from './walk.ts'
 /** Files read concurrently per batch. Order of processing stays sequential. */
 const READ_BATCH = 8
 
+/**
+ * Parsed declarations of files that have not changed since the last scan.
+ *
+ * Extraction plus masking is roughly 80% of a scan on a mid-sized repository,
+ * and a scan runs after every vocabulary write. Documents are keyed by absolute
+ * path and validated by size and mtime, so an edited file is parsed again; the
+ * cache holds declarations only — no source text, no findings — and is bounded.
+ */
+const PARSE_CACHE_LIMIT = 4_000
+
+interface CachedParse {
+  size: number
+  mtimeMs: number
+  declarations: ReturnType<typeof extractTypes>
+}
+
+const parseCache = new Map<string, CachedParse>()
+
 /** A scan could not start. */
 export class ScanError extends Error {
   readonly code: 'root-missing' | 'root-not-directory'
@@ -205,7 +223,20 @@ export async function scanWorkspace(options: ScanOptions): Promise<ScanSummary> 
         bytes: file.bytes,
       }
       const masked = maskSource(text, language)
-      const declarations = extractTypes(source, unitOf)
+      const cached = parseCache.get(file.absPath)
+      // A file touched within the last second is re-parsed even if mtime and size
+      // match: two writes inside one millisecond would otherwise look unchanged.
+      const settled = now() - file.mtimeMs > 1_000
+      const reused = settled && cached !== undefined && cached.size === file.bytes && cached.mtimeMs === file.mtimeMs
+      const declarations = reused ? cached.declarations : extractTypes(source, unitOf)
+      if (!reused) {
+        parseCache.delete(file.absPath)
+        parseCache.set(file.absPath, { size: file.bytes, mtimeMs: file.mtimeMs, declarations })
+        if (parseCache.size > PARSE_CACHE_LIMIT) {
+          const oldest = parseCache.keys().next().value
+          if (oldest !== undefined) parseCache.delete(oldest)
+        }
+      }
       for (const declaration of declarations) {
         if (declaration.members.length === 0) ctx.skippedTypes++
       }
