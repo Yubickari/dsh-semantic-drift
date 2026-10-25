@@ -104,10 +104,20 @@ Publishing to npm is possible but not required; the unscoped name
 ### Following the workspace
 
 **Settings → Follow the workspace** makes the panel follow the current DSH
-workspace: switching sessions switches the vocabulary and rescans. Turning it off
-pins the workspace you last picked from the dropdown, and the choice is
-remembered per browser (not stored in the project). Picking a workspace from the
-dropdown pins it too, because an explicit choice outranks following.
+workspace: switching sessions switches the vocabulary. It does **not** scan —
+opening the panel or switching to it never starts work on its own, so moving
+between workspaces and plugins stays cheap. Turning following off pins the
+workspace you last picked from the dropdown; the choice is remembered per browser
+(not stored in the project). Picking a workspace from the dropdown pins it too,
+because an explicit choice outranks following.
+
+Its child switch, **Rescan automatically**, is only enabled while following is on
+and only fires when following moves the panel to another workspace. Manual scans,
+and the rescan after a save, an accept or a removal, are not affected by it: those
+are consequences of an action you just took.
+
+A workspace that has not been scanned says so — both above the body and in the
+footer — with a Scan button, instead of looking like a workspace with no drift.
 
 A selected concept carries **Edit** and **Delete** next to its title. Deleting
 removes the entry and every accepted exception it recorded from the vocabulary
@@ -119,6 +129,8 @@ list.
 The gear at the top right opens the panel's own settings:
 
 - **Follow the workspace** — the switch described above.
+- **Rescan automatically** — its child switch; disabled until following is on,
+  and it only rescans when following switches workspace.
 - **Notifications close after N seconds** — `0` keeps them until dismissed.
   Notices that carry validation issues never close themselves; they are the text
   you have to act on.
@@ -337,7 +349,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 70 tests, no test framework
+pnpm test          # typecheck + node --test, 80 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

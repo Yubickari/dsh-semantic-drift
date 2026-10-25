@@ -10,7 +10,7 @@
  * @module dsh-semantic-drift/client/Panel
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AcceptRequest,
   AcceptedException,
@@ -130,6 +130,7 @@ export function SemanticPanel(props: PanelProps) {
   // session's workspace, and which workspace it was pinned to otherwise.
   const [preferences] = useState(() => loadPreferences())
   const [auto, setAuto] = useState(preferences.auto)
+  const [autoScan, setAutoScan] = useState(preferences.autoScan)
   const [pinned, setPinned] = useState<string | undefined>(preferences.workspace)
   const [notificationSeconds, setNotificationSeconds] = useState(preferences.notificationSeconds)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -200,11 +201,12 @@ export function SemanticPanel(props: PanelProps) {
   useEffect(() => {
     savePreferences({
       auto,
+      autoScan,
       ...(pinned === undefined ? {} : { workspace: pinned }),
       notificationSeconds,
       showLow,
     })
-  }, [auto, pinned, notificationSeconds, showLow])
+  }, [auto, autoScan, pinned, notificationSeconds, showLow])
 
   // A success notice closes itself after the configured delay; an error that
   // carries validation issues never does, because that is the text the user has
@@ -218,10 +220,25 @@ export function SemanticPanel(props: PanelProps) {
     return () => clearTimeout(timer)
   }, [notice, notificationSeconds])
 
+  /**
+   * The panel never scans because it was opened. A scan happens when the user
+   * asks for one, after a write, or — only when that is enabled — when following
+   * moves the panel to another workspace.
+   *
+   * A workspace change also drops the previous report: findings from another
+   * workspace are not this workspace's findings.
+   */
+  const lastScannedPath = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (effectivePath === undefined) return
+    const previous = lastScannedPath.current
+    lastScannedPath.current = effectivePath
+    if (previous === undefined) return
+    if (previous === effectivePath) return
+    setScan(null)
+    if (!auto || !autoScan) return
     void scanPath(effectivePath)
-  }, [effectivePath, scanPath])
+  }, [auto, autoScan, effectivePath, scanPath])
 
   const vocabulary = state?.vocabulary
   const concepts = vocabulary?.document.concepts ?? []
@@ -361,7 +378,10 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [effectivePath, scanPath])
 
-  /** Turn following off: keep the workspace on screen and remember it. */
+  /**
+   * Turn following off: keep the workspace on screen and remember it. Turning it
+   * back on returns to the session's workspace; neither direction scans.
+   */
   const toggleAuto = useCallback(() => {
     if (auto) {
       const keep = effectivePath ?? pinned
@@ -813,6 +833,27 @@ export function SemanticPanel(props: PanelProps) {
         </div>
       </header>
 
+      {scan === null && state?.vocabulary.exists === true && (
+        <div className="sd-notice-dock" style={{ paddingTop: 6 }}>
+          <div className="sd-notice" data-kind="info">
+            <div className="sd-notice-head" style={{ alignItems: 'center' }}>
+              <span className="sd-notice-text">
+                <strong>{t('scan.never')}</strong> · {t('scan.neverHint')}
+              </span>
+              <button
+                type="button"
+                className="sd-button"
+                onClick={() => void scanPath(effectivePath ?? '')}
+                disabled={busy !== null || effectivePath === undefined}
+              >
+                <RefreshIcon />
+                {t('action.rescan')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="sd-body">
         <ConceptTree
           concepts={filteredConcepts}
@@ -884,6 +925,7 @@ export function SemanticPanel(props: PanelProps) {
         <span>
           {t('footer.drift')} {findings.length}
         </span>
+        {scan === null && <span>{t('scan.never')}</span>}
         {scan !== null && (
           <span>
             {t('footer.files')} {scan.summary.filesScanned}
@@ -925,6 +967,27 @@ export function SemanticPanel(props: PanelProps) {
                   onClick={toggleAuto}
                 >
                   <span className="sd-switch-track" data-on={auto}>
+                    <span className="sd-switch-knob" />
+                  </span>
+                </button>
+              </div>
+              <div className="sd-setting-row" data-disabled={!auto}>
+                <div className="sd-setting-main">
+                  <div className="sd-setting-name">{t('settings.autoScan')}</div>
+                  <div className="sd-setting-hint">
+                    {auto ? t('settings.autoScanHint') : t('settings.autoScanNeedsAuto')}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="sd-switch"
+                  role="switch"
+                  aria-checked={auto && autoScan}
+                  aria-label={t('settings.autoScan')}
+                  disabled={!auto}
+                  onClick={() => setAutoScan(value => !value)}
+                >
+                  <span className="sd-switch-track" data-on={auto && autoScan}>
                     <span className="sd-switch-knob" />
                   </span>
                 </button>

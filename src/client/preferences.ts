@@ -17,6 +17,11 @@ const KEY = 'dsh-semantic-drift:prefs'
 export interface PanelPreferences {
   /** True when the panel follows the current session's workspace. */
   auto: boolean
+  /**
+   * Rescan when following moves to another workspace. Only meaningful while
+   * `auto` is on; it never makes opening the panel scan anything.
+   */
+  autoScan: boolean
   /** Last workspace the user picked, used while `auto` is off. */
   workspace?: string
   /** Seconds before a notification closes itself; 0 keeps it until dismissed. */
@@ -27,7 +32,9 @@ export interface PanelPreferences {
 
 /** Defaults: follow the workspace, no pin yet. */
 export function defaultPreferences(): PanelPreferences {
-  return { auto: true, notificationSeconds: 3, showLow: false }
+  // Following is on, rescanning on a switch is off: entering the panel must not
+  // start work on its own.
+  return { auto: true, autoScan: false, notificationSeconds: 3, showLow: false }
 }
 
 /** Read the stored preferences, falling back to the defaults. */
@@ -43,6 +50,7 @@ export function loadPreferences(): PanelPreferences {
       : 3
     return {
       auto: typeof record.auto === 'boolean' ? record.auto : true,
+      autoScan: record.autoScan === true,
       ...(typeof record.workspace === 'string' && record.workspace !== '' ? { workspace: record.workspace } : {}),
       notificationSeconds: seconds,
       showLow: record.showLow === true,

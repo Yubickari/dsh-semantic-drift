@@ -123,6 +123,13 @@ function resetPrefs(value = null) {
   else window.localStorage.setItem('dsh-semantic-drift:prefs', JSON.stringify(value))
 }
 
+async function scanNow(container) {
+  const button = [...container.querySelectorAll('button')].find(entry => entry.textContent?.includes('重新扫描'))
+  assert.ok(button !== undefined, 'the scan button must exist')
+  click(button)
+  await flush(8)
+}
+
 function openSettings(container) {
   const gear = [...container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '设置')
   assert.ok(gear !== undefined, 'the settings entry must exist in the header')
@@ -267,6 +274,7 @@ test('accepting an unclassified finding asks which concept and then calls the ho
   try {
     const { container, root } = mountPanel()
     await flush(8)
+    await scanNow(container)
     const unclassified = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('未归类'))
     assert.ok(unclassified !== undefined, 'the unclassified row must exist')
     click(unclassified)
@@ -440,6 +448,7 @@ test('accepting one site can mute the whole file-name family', async () => {
   try {
     const { container, root } = mountPanel()
     await flush(8)
+    await scanNow(container)
     const unclassified = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('未归类'))
     click(unclassified)
     await flush()
@@ -664,12 +673,83 @@ test('a concept shows how many findings its exception mutes, even after the resc
   try {
     const { container, root } = mountPanel()
     await flush(8)
+    await scanNow(container)
     const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('module_name'))
     click(item)
     await flush(2)
     const text = container.textContent ?? ''
     assert.match(text, /当前静音 1 条/, `the row must report the muted count; got: ${text.slice(-300)}`)
     assert.doesNotMatch(text, /当前没有静音任何发现/)
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('opening the panel never scans, and the child switch controls rescan-on-follow', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const scans = []
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/state')) {
+      const workspace = new URL(href, 'http://placeholder/').searchParams.get('workspace') ?? '/tmp/default'
+      return json({ ...STATE, workspace: { path: workspace, title: workspace.split('/').at(-1), resolvedFrom: 'request' } })
+    }
+    if (href.includes('/scan')) {
+      scans.push(JSON.parse(String(init.body ?? '{}')).workspace)
+      return json({
+        ok: true,
+        workspace: { path: '/tmp' },
+        summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 },
+        vocabularyIssues: [],
+      })
+    }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    let cwd = '/tmp/ws-a'
+    const props = () => ({ useSessions: selector => selector({ current: 's1', byId: { s1: { cwd } } }) })
+    const { container, root, rerender } = mountPanel(props())
+    await flush(8)
+    assert.equal(scans.length, 0, 'opening the panel must not scan')
+    assert.match(container.textContent ?? '', /尚未扫描/, 'the panel must say nothing has been scanned')
+
+    cwd = '/tmp/ws-b'
+    rerender(props())
+    await flush(8)
+    assert.match(container.textContent ?? '', /ws-b/, 'following still switches the workspace')
+    assert.equal(scans.length, 0, 'following alone must not scan')
+
+    openSettings(container)
+    await flush(2)
+    const switches = [...container.querySelectorAll('[role="switch"]')]
+    assert.equal(switches.length, 3, 'follow, rescan and low-confidence')
+    const rescanSwitch = switches[1]
+    assert.equal(rescanSwitch.getAttribute('aria-checked'), 'false', 'rescan-on-follow is off by default')
+    click(rescanSwitch)
+    await flush(2)
+    assert.equal(container.querySelectorAll('[role="switch"]')[1].getAttribute('aria-checked'), 'true')
+    const done = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '完成')
+    click(done)
+    await flush(2)
+
+    cwd = '/tmp/ws-c'
+    rerender(props())
+    await flush(8)
+    assert.deepEqual(scans, ['/tmp/ws-c'], 'with the child switch on, a follow switch rescans once')
+
+    // Turning following off must disable its child switch.
+    openSettings(container)
+    await flush(2)
+    const autoSwitch = container.querySelectorAll('[role="switch"]')[0]
+    click(autoSwitch)
+    await flush(2)
+    const childAfter = container.querySelectorAll('[role="switch"]')[1]
+    assert.equal(childAfter.getAttribute('aria-checked'), 'false')
+    assert.equal(childAfter.hasAttribute('disabled'), true, 'the child switch is not available without following')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch

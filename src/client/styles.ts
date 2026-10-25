@@ -386,6 +386,7 @@ export const PANEL_CSS = `
 .sd-notice-close { flex: none; margin-left: auto; }
 .sd-notice[data-kind='error'] { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 .sd-notice[data-kind='success'] { border-color: var(--dsw-alias-state-success-primary); }
+.sd-notice[data-kind='info'] { border-color: var(--dsw-alias-border-l2); }
 .sd-form { display: flex; flex-direction: column; gap: 14px; max-width: 620px; }
 .sd-field { display: flex; flex-direction: column; gap: 5px; }
 .sd-label { font-size: 12px; font-weight: 600; }
@@ -415,6 +416,7 @@ export const PANEL_CSS = `
   letter-spacing: .07em;
   color: var(--dsw-alias-label-secondary);
 }
+.sd-setting-row[data-disabled='true'] { opacity: .55; }
 .sd-setting-row {
   display: flex;
   align-items: center;
