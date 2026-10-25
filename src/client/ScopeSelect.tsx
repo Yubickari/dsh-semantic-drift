@@ -60,14 +60,17 @@ export interface ScopeSelectProps {
   onChange: (value: ScopeValue) => void
   /** The exception's current scope, so an edit can say what changes. */
   originalPath?: string
+  /** How many findings that scope actually mutes, when the host reported it. */
+  originalCount?: number
 }
 
 export function ScopeSelect(props: ScopeSelectProps) {
   const current = scopePathFor(props.anchor, props.value)
   const covered = coveredBy(props.findings, props.symbol, current)
-  const original = props.originalPath === undefined
-    ? undefined
-    : coveredBy(props.findings, props.symbol, props.originalPath).length
+  const original = props.originalCount
+    ?? (props.originalPath === undefined
+      ? undefined
+      : coveredBy(props.findings, props.symbol, props.originalPath).length)
   const kinds: ScopeKind[] = props.anchor === '' ? ['symbol', 'custom'] : ['file', 'family', 'symbol', 'custom']
   return (
     <div className="sd-field" style={{ gap: 5 }}>

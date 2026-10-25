@@ -226,6 +226,23 @@ export function SemanticPanel(props: PanelProps) {
   const vocabulary = state?.vocabulary
   const concepts = vocabulary?.document.concepts ?? []
   const findings = useMemo(() => scan?.summary.findings ?? [], [scan])
+  const mutedFindings = useMemo(() => scan?.summary.mutedFindings ?? [], [scan])
+  /** Everything the scan knows about, including what an exception suppressed. */
+  const allFindings = useMemo(() => [...findings, ...mutedFindings], [findings, mutedFindings])
+
+  /**
+   * How many findings one accepted exception mutes. The visible list cannot
+   * answer this — muted findings are exactly the ones the scan withheld — so the
+   * count comes from the filter that did the muting, with a coverage fallback
+   * only for a Host that predates that field.
+   */
+  const muteCountOf = useCallback((concept: Concept, index: number): number => {
+    const reported = scan?.summary.mutedByAccepted?.find(entry => entry.conceptId === concept.id && entry.index === index)
+    if (reported !== undefined) return reported.count
+    const exception = concept.accepted?.[index]
+    if (exception === undefined) return 0
+    return coveredBy(allFindings, exception.symbol, exception.path).length
+  }, [allFindings, scan])
 
   const visibleCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -708,6 +725,7 @@ export function SemanticPanel(props: PanelProps) {
         onEditException={openExceptionEdit}
         onRemoveException={openExceptionRemove}
         onClearExceptions={openExceptionClear}
+        muteCount={muteCountOf}
         onAccept={openAccept}
         onCopy={text => void copy(text)}
       />
@@ -1025,10 +1043,11 @@ export function SemanticPanel(props: PanelProps) {
               <ScopeSelect
                 anchor={exception.path ?? ''}
                 symbol={exception.symbol}
-                findings={findings}
+                findings={allFindings}
                 value={editScope}
                 onChange={setEditScope}
                 originalPath={exception.path}
+                originalCount={muteCountOf(exceptionEdit.concept, exceptionEdit.index)}
               />
               <label className="sd-label" htmlFor="sd-exception-reason">{t('editor.acceptedReason')}</label>
               <input

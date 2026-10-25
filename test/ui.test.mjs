@@ -66,6 +66,7 @@ test('a concept offers delete next to edit', () => {
     onShowLow: () => undefined,
     onEdit: () => undefined,
     onDelete: () => undefined,
+    muteCount: () => 0,
   }))
   assert.match(html, /删除/)
   assert.match(html, /编辑/)
@@ -91,6 +92,7 @@ test('accepted exceptions offer edit and remove, and a clear action when plural'
     onEditException: () => undefined,
     onRemoveException: () => undefined,
     onClearExceptions: () => undefined,
+    muteCount: () => 2,
     onAccept: () => undefined,
     onCopy: () => undefined,
   }))

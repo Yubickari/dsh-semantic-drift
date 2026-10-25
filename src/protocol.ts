@@ -165,6 +165,14 @@ export interface ScanSummary {
   counts: Record<string, number>
   /** Hypotheses the scanner could not evaluate, e.g. unparsable type bodies. */
   skippedTypes: number
+  /**
+   * Findings an accepted exception suppressed. They are not listed as findings —
+   * that is the point of an exception — but the panel needs them to say how many
+   * a scope mutes and to preview a narrower scope.
+   */
+  mutedFindings?: DriftFinding[]
+  /** Per accepted entry: how many findings it actually muted, attributed once. */
+  mutedByAccepted?: Array<{ conceptId: string; index: number; count: number }>
 }
 
 /** Vocabulary state as the browser and the tools see it. */

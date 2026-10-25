@@ -605,3 +605,74 @@ test('an accepted exception can be narrowed, removed and undone', async () => {
     resetPrefs()
   }
 })
+
+test('a concept shows how many findings its exception mutes, even after the rescan', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const finding = {
+    id: 'duplicate-type:a/Common/Provider.cs:ModuleName:3',
+    detector: 'duplicate-type',
+    confidence: 'high',
+    path: 'Alpha/Common/Provider.cs',
+    line: 3,
+    symbol: 'ModuleName',
+    message: 'example',
+    citation: 'a/Common/Provider.cs::ModuleName',
+    detail: { rule: 'derived-copy', members: ['A', 'B'] },
+  }
+  const state = {
+    ...STATE,
+    vocabulary: {
+      ...STATE.vocabulary,
+      document: {
+        ...STATE.vocabulary.document,
+        concepts: [{
+          ...STATE.vocabulary.document.concepts[0],
+          accepted: [{ symbol: 'ModuleName', path: '**/Common/**', reason: 'every module has one' }],
+        }],
+      },
+    },
+  }
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(state)
+    if (href.includes('/scan')) {
+      // After acceptance the scan withholds the finding and says who muted it.
+      return json({
+        ok: true,
+        workspace: { path: '/tmp/yne20' },
+        summary: {
+          findings: [],
+          counts: {},
+          filesScanned: 1,
+          filesSkipped: 0,
+          bytesScanned: 10,
+          durationMs: 1,
+          truncated: false,
+          skippedTypes: 0,
+          root: '/tmp',
+          startedAt: 0,
+          mutedFindings: [finding],
+          mutedByAccepted: [{ conceptId: 'device.module_name', index: 0, count: 1 }],
+        },
+        vocabularyIssues: [],
+      })
+    }
+    return json({ ok: true, vocabulary: state.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('module_name'))
+    click(item)
+    await flush(2)
+    const text = container.textContent ?? ''
+    assert.match(text, /当前静音 1 条/, `the row must report the muted count; got: ${text.slice(-300)}`)
+    assert.doesNotMatch(text, /当前没有静音任何发现/)
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})

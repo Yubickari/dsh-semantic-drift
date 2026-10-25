@@ -199,6 +199,12 @@ test('accepted exceptions mute their findings without hiding the rest', async ()
   const summary = await scanWorkspace({ ...BASE, root, document: vocabulary([accepted]) })
   assert.equal(summary.findings.some(finding => finding.detector === 'symbol-variant'), false)
   assert.equal(summary.findings.some(finding => finding.detector === 'duplicate-type'), true)
+
+  // The muted finding is not a finding, but the scan still reports it: without
+  // that, a concept could only ever show "mutes 0".
+  assert.equal(summary.mutedFindings?.length, 1)
+  assert.equal(summary.mutedFindings?.[0].symbol, 'target_temp')
+  assert.deepEqual(summary.mutedByAccepted, [{ conceptId: 'device.target_temperature', index: 0, count: 1 }])
 })
 
 test('minConfidence and the detector filter narrow the report', async () => {

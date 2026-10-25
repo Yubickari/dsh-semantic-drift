@@ -150,6 +150,11 @@ concept has more than one.
   states the count; undo restores the whole set.
 - An operation loads the file again inside the store before writing, so it applies
   to what is on disk rather than to the snapshot the browser held.
+- The **current mute count** on a row comes from the scan and its mute
+  attribution, not from the visible finding list: a muted finding is by
+  definition not in that list. A row that reports "mutes nothing" most likely has
+  a scope that matches nothing — that is itself worth seeing, which is why the
+  number is shown rather than hidden.
 
 ### The unclassified list
 

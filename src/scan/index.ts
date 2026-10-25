@@ -82,15 +82,31 @@ function compareFindings(left: DriftFinding, right: DriftFinding): number {
   return left.symbol < right.symbol ? -1 : left.symbol > right.symbol ? 1 : 0
 }
 
-/** True when the concept vocabulary mutes this finding. */
-export function isAccepted(finding: DriftFinding, concepts: readonly Concept[]): boolean {
+/**
+ * The accepted exception that mutes this finding, if any.
+ *
+ * Returning the owner (concept + index) instead of a boolean is what lets a scan
+ * report *how many* findings each exception suppressed: the count is attributed
+ * where the decision is made, so it cannot drift from the filter itself.
+ */
+export function acceptedBy(
+  finding: DriftFinding,
+  concepts: readonly Concept[],
+): { conceptId: string; index: number } | undefined {
   for (const concept of concepts) {
-    for (const exception of concept.accepted ?? []) {
+    const accepted = concept.accepted ?? []
+    for (let index = 0; index < accepted.length; index++) {
+      const exception = accepted[index]
       if (exception.symbol !== finding.symbol) continue
-      if (matchesGlob(exception.path, finding.path)) return true
+      if (matchesGlob(exception.path, finding.path)) return { conceptId: concept.id, index }
     }
   }
-  return false
+  return undefined
+}
+
+/** True when the concept vocabulary mutes this finding. */
+export function isAccepted(finding: DriftFinding, concepts: readonly Concept[]): boolean {
+  return acceptedBy(finding, concepts) !== undefined
 }
 
 function confidenceRank(level: Confidence): number {
@@ -214,8 +230,26 @@ export async function scanWorkspace(options: ScanOptions): Promise<ScanSummary> 
     finding.detector !== 'term-unmapped' || !variantKeys.has(`${finding.conceptId ?? ''}|${finding.path}`),
   )
 
-  const visible = deduped
-    .filter(finding => !isAccepted(finding, ctx.concepts))
+  // Split before the confidence filter: a muted low-confidence finding still
+  // counts as muted, otherwise the number a concept shows would move whenever
+  // the reader changes the confidence floor.
+  const mutedFindings: DriftFinding[] = []
+  const mutedCounts = new Map<string, { conceptId: string; index: number; count: number }>()
+  const unmuted: DriftFinding[] = []
+  for (const finding of deduped) {
+    const owner = acceptedBy(finding, ctx.concepts)
+    if (owner === undefined) {
+      unmuted.push(finding)
+      continue
+    }
+    mutedFindings.push(finding)
+    const key = `${owner.conceptId}#${owner.index}`
+    const entry = mutedCounts.get(key) ?? { conceptId: owner.conceptId, index: owner.index, count: 0 }
+    entry.count++
+    mutedCounts.set(key, entry)
+  }
+
+  const visible = unmuted
     .filter(finding =>
       options.minConfidence === undefined
         ? true
@@ -245,5 +279,9 @@ export async function scanWorkspace(options: ScanOptions): Promise<ScanSummary> 
     findings: capped,
     counts,
     skippedTypes: ctx.skippedTypes,
+    mutedFindings: mutedFindings.sort(compareFindings),
+    mutedByAccepted: [...mutedCounts.values()].sort((left, right) =>
+      left.conceptId === right.conceptId ? left.index - right.index : left.conceptId < right.conceptId ? -1 : 1,
+    ),
   }
 }

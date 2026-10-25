@@ -9,7 +9,6 @@
  */
 
 import type { AcceptedException, Concept, DriftFinding } from '../protocol.ts'
-import { matchesGlob } from '../glob.ts'
 import { t, tf } from './locales.ts'
 import { DriftList } from './DriftList.tsx'
 import { EditIcon, TrashIcon } from './icons.tsx'
@@ -28,6 +27,11 @@ export interface ConceptDetailProps {
   onRemoveException: (concept: Concept, index: number) => void
   /** Remove every accepted exception of the concept, after confirmation. */
   onClearExceptions: (concept: Concept) => void
+  /**
+   * How many findings one accepted exception currently mutes. Reported by the
+   * host's scan, because the muted findings are not in the visible list.
+   */
+  muteCount: (concept: Concept, index: number) => number
   onAccept: (finding: DriftFinding) => void
   onCopy: (text: string) => void
 }
@@ -115,11 +119,9 @@ export function ConceptDetail(props: ConceptDetailProps) {
                   </div>
                   <div className="sd-drift-note">{exception.reason}</div>
                   <div className="sd-meta">
-                    {tf('detail.mutes', {
-                      count: props.findings.filter(finding =>
-                        finding.symbol === exception.symbol && matchesGlob(exception.path, finding.path),
-                      ).length,
-                    })}
+                    {props.muteCount(concept, index) === 0
+                      ? t('detail.mutesZero')
+                      : tf('detail.mutes', { count: props.muteCount(concept, index) })}
                   </div>
                 </div>
                 <div className="sd-row-actions">
