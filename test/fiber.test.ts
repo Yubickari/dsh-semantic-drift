@@ -84,6 +84,7 @@ test('the built host mounts five tools, six routes and one prompt section', asyn
     harness.routes.map(route => route.path).sort(),
     [
       '/semantic-drift/accept',
+      '/semantic-drift/health',
       '/semantic-drift/init',
       '/semantic-drift/raw',
       '/semantic-drift/save',
@@ -157,6 +158,33 @@ test('a tool refusal is a value, not an exception', async () => {
   harness.dispose()
 })
 
+test('the health route reports what the activation mounted', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/health') as unknown as {
+    kind: string
+    handler(req: unknown, res: unknown): void
+  }
+  assert.equal(route.kind, 'exact')
+  let status = 0
+  let body = ''
+  const res = {
+    writeHead(code: number) { status = code },
+    end(payload: string) { body = payload },
+  }
+  route.handler({ method: 'GET', headers: {} }, res)
+  assert.equal(status, 200)
+  const health = JSON.parse(body) as Record<string, unknown>
+  assert.equal(health.ok, true)
+  assert.equal(health.tools, 5)
+  assert.equal(health.routes, 7)
+  assert.equal(health.promptSection, true)
+  assert.equal(health.announceToAgent, true)
+  harness.dispose()
+})
+
 test('announceToAgent=false leaves the prompt untouched', async () => {
   const module = await import('../lib/index.js')
   const root = await fixture()
@@ -164,5 +192,7 @@ test('announceToAgent=false leaves the prompt untouched', async () => {
   module.apply(harness.ctx, module.Config({ announceToAgent: false }))
   assert.equal(harness.sections.length, 0)
   assert.equal(harness.tools.length, 5, 'turning the prompt off must not disable the tools')
+  const health = harness.routes.find(entry => entry.path === '/semantic-drift/health')
+  assert.ok(health !== undefined, 'the health route mounts regardless of the prompt setting')
   harness.dispose()
 })

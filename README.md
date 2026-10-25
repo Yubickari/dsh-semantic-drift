@@ -222,6 +222,10 @@ configuration UI. Changing a setting reloads the plugin row.
   says which one did.
 * **Workspace-scoped.** A request can only read and write inside a registered
   DSH workspace (or the Host's default directory); anything else is refused.
+* **Diagnosable.** `GET /semantic-drift/health` reports what this activation
+  mounted — tool count, route count, whether the prompt section is registered —
+  plus the effective settings, so a half-mounted plugin is visible instead of
+  silent. The panel is a thin view over that same service.
 
 Typical cost on a real 1,700-file C# repository: **~1.2 s**, ~18 MB read, no
 files changed.
@@ -268,7 +272,7 @@ compilation, no code generation. One YAML file and a scanner.
 
 ```bash
 pnpm install
-pnpm test          # node --test, 48 tests, no test framework
+pnpm test          # node --test, 55 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

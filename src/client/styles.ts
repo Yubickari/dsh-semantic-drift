@@ -335,7 +335,8 @@ export const PANEL_CSS = `
   background: var(--dsw-alias-bg-overlay);
   cursor: default;
 }
-.sd-notice-head { display: flex; align-items: flex-start; gap: 10px; }
+.sd-notice-head { display: flex; align-items: center; gap: 10px; }
+.sd-notice-head[data-multiline='true'] { align-items: flex-start; }
 .sd-notice-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sd-notice-close { flex: none; margin-left: auto; }
 .sd-notice[data-kind='error'] { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }

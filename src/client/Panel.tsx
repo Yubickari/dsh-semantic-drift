@@ -16,13 +16,15 @@ import { acceptException, ApiError, fetchState, initVocabulary, runScan, saveDoc
 import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
 import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
+import { Notice } from './Notice.tsx'
+import type { NoticeValue } from './Notice.tsx'
 import { ConceptEditor } from './ConceptEditor.tsx'
 import { ConceptTree } from './ConceptTree.tsx'
 import { DriftList } from './DriftList.tsx'
 import { RawEditor } from './RawEditor.tsx'
-import { maybeT, t } from './locales.ts'
+import { maybeT, t, tf } from './locales.ts'
 import type { MessageKey } from './locales.ts'
-import { CloseIcon, CodeIcon, PlusIcon, RefreshIcon } from './icons.tsx'
+import { CodeIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { PANEL_CSS } from './styles.ts'
 
 /** Standard props the shell passes to a `main` entry. Both are optional so a
@@ -39,15 +41,15 @@ type View =
   | { kind: 'edit'; concept: Concept | undefined; initialId?: string; initialSymbol?: string }
   | { kind: 'raw' }
 
-interface Notice {
-  kind: 'success' | 'error'
-  text: string
-  issues?: readonly ValidationIssue[]
-}
-
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) return error.message
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Save feedback that names the issue count, so a refusal is never a silent no-op. */
+function saveFailureText(error: unknown, fallback: MessageKey, issues: readonly ValidationIssue[]): string {
+  const base = errorText(error, fallback)
+  return issues.length === 0 ? base : base + tf('state.issueCount', { count: issues.length })
 }
 
 /** A notice line: the localized cause when the code is known, else the raw text. */
@@ -115,7 +117,7 @@ export function SemanticPanel(props: PanelProps) {
   const [filter, setFilter] = useState<'all' | 'drift' | 'clean'>('all')
   const [showLow, setShowLow] = useState(false)
   const [busy, setBusy] = useState<'load' | 'scan' | 'save' | 'accept' | 'init' | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [notice, setNotice] = useState<NoticeValue | null>(null)
   const [editorIssues, setEditorIssues] = useState<readonly ValidationIssue[]>([])
   const [acceptTarget, setAcceptTarget] = useState<DriftFinding | null>(null)
   const [acceptReason, setAcceptReason] = useState('')
@@ -136,7 +138,15 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [])
 
+  const notReady = useCallback(() => {
+    setNotice({ kind: 'error', text: t('state.notReady') })
+  }, [])
+
   const scanPath = useCallback(async (path: string) => {
+    if (path === '') {
+      notReady()
+      return
+    }
     setBusy('scan')
     try {
       setScan(await runScan(path))
@@ -210,7 +220,10 @@ export function SemanticPanel(props: PanelProps) {
   }, [effectivePath, load, scanPath])
 
   const createVocabulary = useCallback(async () => {
-    if (effectivePath === undefined) return
+    if (effectivePath === undefined) {
+      notReady()
+      return
+    }
     setBusy('init')
     try {
       const result = await initVocabulary(effectivePath)
@@ -218,14 +231,17 @@ export function SemanticPanel(props: PanelProps) {
       setNotice({ kind: 'success', text: t('state.saved') })
       await scanPath(effectivePath)
     } catch (error) {
-      setNotice({ kind: 'error', text: errorText(error, 'state.saveFailed'), issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issuesOf(error)), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
   }, [effectivePath, scanPath])
 
   const submitConcept = useCallback(async (concept: Concept) => {
-    if (effectivePath === undefined || vocabulary === undefined) return
+    if (effectivePath === undefined || vocabulary === undefined) {
+      notReady()
+      return
+    }
     setBusy('save')
     setEditorIssues([])
     try {
@@ -244,14 +260,17 @@ export function SemanticPanel(props: PanelProps) {
       await scanPath(effectivePath)
     } catch (error) {
       setEditorIssues(issuesOf(error))
-      setNotice({ kind: 'error', text: errorText(error, 'state.saveFailed'), issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issuesOf(error)), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
   }, [concepts, effectivePath, scanPath, vocabulary])
 
   const submitRaw = useCallback(async (text: string) => {
-    if (effectivePath === undefined) return
+    if (effectivePath === undefined) {
+      notReady()
+      return
+    }
     setBusy('save')
     setEditorIssues([])
     try {
@@ -262,7 +281,7 @@ export function SemanticPanel(props: PanelProps) {
       await scanPath(effectivePath)
     } catch (error) {
       setEditorIssues(issuesOf(error))
-      setNotice({ kind: 'error', text: errorText(error, 'state.saveFailed'), issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issuesOf(error)), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
@@ -285,9 +304,15 @@ export function SemanticPanel(props: PanelProps) {
   }, [concepts])
 
   const confirmAccept = useCallback(async () => {
-    if (effectivePath === undefined || acceptTarget === null) return
+    if (effectivePath === undefined || acceptTarget === null) {
+      notReady()
+      return
+    }
     const conceptId = acceptTarget.conceptId ?? acceptConceptId
-    if (conceptId === undefined) return
+    if (conceptId === undefined) {
+      setNotice({ kind: 'error', text: t('unclassified.noConcept') })
+      return
+    }
     if (acceptReason.trim() === '') return
     setBusy('accept')
     try {
@@ -305,7 +330,7 @@ export function SemanticPanel(props: PanelProps) {
       setNotice({ kind: 'success', text: t('state.accepted') })
       await scanPath(effectivePath)
     } catch (error) {
-      setNotice({ kind: 'error', text: errorText(error, 'state.acceptFailed'), issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: saveFailureText(error, 'state.acceptFailed', issuesOf(error)), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
@@ -507,26 +532,13 @@ export function SemanticPanel(props: PanelProps) {
         />
         <section className="sd-detail">
           {notice !== null && (
-            <div
-              className="sd-notice"
-              data-kind={notice.kind}
-              title={t('notice.dismissHint')}
-              onDoubleClick={() => setNotice(null)}
-            >
-              <div className="sd-notice-head">
-                <span className="sd-notice-text">{notice.text}</span>
-                <button
-                  type="button"
-                  className="sd-button sd-button-ghost sd-notice-close"
-                  title={`${t('action.close')} · ${t('notice.dismissHint')}`}
-                  aria-label={t('action.close')}
-                  onClick={() => setNotice(null)}
-                >
-                  <CloseIcon />
-                </button>
-              </div>
-              {notice.issues !== undefined && notice.issues.length > 0 && <IssueList issues={notice.issues} limit={6} />}
-            </div>
+            <Notice
+              notice={notice}
+              onDismiss={() => setNotice(null)}
+              {...(notice.kind === 'error' && state === null
+                ? { onRetry: () => void load(requested ?? suggested) }
+                : {})}
+            />
           )}
           {invalid && view.kind !== 'raw' && (
             <div className="sd-notice" data-kind="error">

@@ -171,6 +171,7 @@ concepts:
 * **无 daemon、无文件监听、无索引。** 没有后台进程、没有 watcher、没有缓存目录；扫描是你要的时候现算。
 * **有界。** 超时与结果上限总会结束一次扫描，结果里写明是哪一个触发的。
 * **限定工作区。** 请求只能读写已注册的 DSH 工作区（或 Host 默认目录），其它路径一律拒绝。
+* **可诊断。** `GET /semantic-drift/health` 返回本次激活实际挂载了什么（工具数、路由数、提示注入是否注册）以及生效配置，半挂载的插件会暴露出来而不是静默失效。
 
 真实 1700 文件 C# 仓库上的典型开销：**约 1.2 秒**、读取约 18 MB、不改动任何文件。
 
@@ -195,7 +196,7 @@ concepts:
 
 ```bash
 pnpm install
-pnpm test          # node --test，48 个用例，无测试框架依赖
+pnpm test          # node --test，55 个用例，无测试框架依赖
 pnpm build         # esbuild → lib/index.js（host）+ lib/client.js（浏览器）
 ```
 

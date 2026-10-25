@@ -31,12 +31,21 @@ export { Config }
 /** Package version, kept in sync with package.json by a test. */
 export const VERSION = '0.1.0'
 
-/** Services this plugin cannot work without. */
-export const inject = ['tools', 'systemPrompt']
+/**
+ * Services this plugin cannot work without.
+ *
+ * `webServer` is injected rather than probed on purpose: the routes ARE this
+ * plugin's browser half, and probing meant a cold boot could run `apply` before
+ * the HTTP carrier existed, silently registering no routes at all. Declaring the
+ * dependency is what tells the Loader to wait. A Host without a web carrier now
+ * reports the row as un-activatable instead of half-mounting it.
+ */
+export const inject = ['tools', 'systemPrompt', 'webServer']
 
 /** The context surface this entry uses, spelled structurally to stay version tolerant. */
 interface PluginContext {
   get(name: string): unknown
+  webServer?: { register(route: unknown): () => void }
   effect(callback: () => () => void, label?: string): () => void
   tools: { register(definition: unknown): () => void }
   systemPrompt: { section(section: {
@@ -50,16 +59,41 @@ interface PluginContext {
 /** Config as it arrives from the Loader. */
 type LoaderConfig = SemanticConfig
 
+const CONSOLE_LOGGER = (name: string) => ({
+  info: (message: string) => console.info(`[${name}] ${message}`),
+  warn: (message: string) => console.warn(`[${name}] ${message}`),
+})
+
+/**
+ * Resolve a logger that can never stop the plugin.
+ *
+ * Logging is diagnostics, and a diagnostic that throws would abort `apply` —
+ * which is exactly how a plugin ends up half mounted with no explanation. Both
+ * the lookup and each call are therefore wrapped.
+ */
 function loggerOf(ctx: PluginContext, name: string): { info(message: string): void; warn(message: string): void } {
+  let underlying: { info(message: string): void; warn(message: string): void } | undefined
   try {
-    const logger = ctx.logger?.(name)
-    if (logger !== undefined) return logger
+    underlying = ctx.logger?.(name)
   } catch {
-    // Fall through to console.
+    underlying = undefined
   }
+  if (underlying === undefined) return CONSOLE_LOGGER(name)
   return {
-    info: message => console.info(`[${name}] ${message}`),
-    warn: message => console.warn(`[${name}] ${message}`),
+    info: message => {
+      try {
+        underlying?.info(message)
+      } catch {
+        // Never let a log line break a plugin.
+      }
+    },
+    warn: message => {
+      try {
+        underlying?.warn(message)
+      } catch {
+        // Never let a log line break a plugin.
+      }
+    },
   }
 }
 
@@ -72,6 +106,8 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
   const context = ctx as unknown as PluginContext
   const config = rawConfig as unknown as SemanticConfig
   const log = loggerOf(context, PACKAGE_NAME)
+  /** What this activation actually mounted, reported by `/semantic-drift/health`. */
+  const health: { tools: number; routes: number; prompt: boolean } = { tools: 0, routes: 0, prompt: false }
 
   const workspace = createWorkspaceResolver(context)
   const service = createSemanticService({ config, workspace, version: VERSION })
@@ -92,13 +128,16 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
       log.warn(`agent tools were not registered: ${error instanceof Error ? error.message : String(error)}`)
       return () => undefined
     }
+    health.tools = disposers.length
     log.info(`${disposers.length} agent tools registered`)
     return () => {
       for (const dispose of disposers.splice(0).reverse()) dispose()
     }
   }, 'semantic-drift: agent tools')
 
-  const webServer = (() => {
+  // Injected above, so this is present; the fallback keeps a hand-mounted
+  // context (tests, embedders) working without the property.
+  const webServer = context.webServer ?? (() => {
     try {
       return context.get('webServer') as { register(route: unknown): () => void } | undefined
     } catch {
@@ -110,7 +149,17 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
     context.effect(() => {
       const disposers: Array<() => void> = []
       try {
-        for (const route of makeSemanticRoutes(service)) disposers.push(webServer.register(route))
+        for (const route of makeSemanticRoutes(service, () => ({
+          version: VERSION,
+          vocabularyPath: config.vocabularyPath,
+          announceToAgent: config.announceToAgent !== false,
+          citationStyle: config.citationStyle,
+          minConfidence: config.minConfidence,
+          detectors: config.detectors,
+          tools: health.tools,
+          routes: health.routes,
+          promptSection: health.prompt,
+        }))) disposers.push(webServer.register(route))
       } catch (error) {
         for (const dispose of disposers) {
           try {
@@ -122,6 +171,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
         log.warn(`routes were not registered: ${error instanceof Error ? error.message : String(error)}`)
         return () => undefined
       }
+      health.routes = disposers.length
       log.info(`${disposers.length} routes registered`)
       return () => {
         for (const dispose of disposers.splice(0).reverse()) dispose()
@@ -133,7 +183,10 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
   }
 
   context.effect(() => {
-    if (config.announceToAgent === false) return () => undefined
+    if (config.announceToAgent === false) {
+      health.prompt = false
+      return () => undefined
+    }
     const dispose = ctx.systemPrompt.section({
       name: PROMPT_SECTION,
       order: PROMPT_SECTION_ORDER,
@@ -146,6 +199,10 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
         }
       },
     })
-    return dispose
+    health.prompt = true
+    return () => {
+      health.prompt = false
+      dispose()
+    }
   }, 'semantic-drift: prompt section')
 }

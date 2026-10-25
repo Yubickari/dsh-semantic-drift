@@ -121,8 +121,22 @@ function optionalString(value: unknown): string | undefined {
 /**
  * Build the route table for one activation.
  * @param service - the shared host service.
+ * @param diagnostics - what this activation mounted, for the health route.
  */
-export function makeSemanticRoutes(service: SemanticService): WebRoute[] {
+export function makeSemanticRoutes(
+  service: SemanticService,
+  diagnostics: () => Record<string, unknown> = () => ({}),
+): WebRoute[] {
+  const healthRoute: WebRoute = {
+    kind: 'exact',
+    path: `${API_PREFIX}/health`,
+    handler: (req, res) => {
+      if (req.method !== 'GET') return writeJson(res, 405, failure('method-not-allowed', 'Use GET.'))
+      if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
+      writeJson(res, 200, { ok: true, ...diagnostics() })
+    },
+  }
+
   const state: WebRoute = {
     kind: 'exact',
     path: `${API_PREFIX}/state`,
@@ -250,5 +264,5 @@ export function makeSemanticRoutes(service: SemanticService): WebRoute[] {
     },
   }
 
-  return [state, scan, save, raw, init, accept]
+  return [healthRoute, state, scan, save, raw, init, accept]
 }
