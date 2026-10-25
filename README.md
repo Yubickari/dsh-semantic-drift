@@ -118,6 +118,23 @@ After installing, refresh the page once so the browser half loads, then pick
 `lib/` is committed, so installing from a git source needs no build step. The
 plugin needs DSH `>=0.2.1-rc.3`.
 
+### Updating
+
+There is no in-plugin updater: DSH replaces an installed bundle when it is installed
+again.
+
+```bash
+# npm, a specific version
+dsh plugin --profile desktop add dsh-semantic-drift@0.2.0
+
+# GitHub, pinned to a tag
+dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.2.0
+```
+
+Restart DSH afterwards, then read the version in the panel footer or at
+`GET /semantic-drift/health`. An update never touches your vocabulary file or its
+accepted exceptions.
+
 ## Getting started
 
 1. Open **Semantic Drift Vocabulary** in a workspace.
@@ -184,6 +201,22 @@ formatting.
 | `symbol-variant` | medium | a spelling variant of `canonical.symbol` (case/separator form, a known confusable, edit distance ≤ 2), or *same contract, other name*: same base, members and stable literal as the canonical type |
 | | medium | *vocabulary spelling is not in the code*: `canonical.symbol` appears nowhere as a code token while another case form is declared or heads a declaration |
 | `term-unmapped` | low | a declared term appears in comments or resources, but the canonical symbol never appears in code |
+
+Every finding also carries a stable rule id in `detail.rule`, which is what the
+panel localizes:
+
+| rule | detector | meaning |
+|---|---|---|
+| `identical-members` | duplicate-type | same members and the same values |
+| `derived-copy` | duplicate-type | same members, different values, one shared base |
+| `literal-variant` | duplicate-type | same members, different values, no shared base |
+| `diverged-members` | contract-drift | members or their values differ |
+| `normalized` | symbol-variant | same spelling after removing case and separators |
+| `confusable` | symbol-variant | a known misspelling of a token in the symbol |
+| `edit-distance` | symbol-variant | within two edits of the canonical |
+| `contract-alias` | symbol-variant | same contract, another name |
+| `canonical-case` | symbol-variant | canonical spelling absent, another case present |
+| `canonical-missing` | term-unmapped | a term is used, the canonical symbol is not |
 
 Member **values** are compared when they are simple single-line literals: two enums
 whose members swapped values used to look identical when only names were compared. A

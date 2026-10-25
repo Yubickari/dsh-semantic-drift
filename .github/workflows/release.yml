@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write      # create the GitHub release
+  id-token: write      # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4          # version comes from packageManager
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: The tag matches the manifest
+        run: |
+          node -e '
+            const version = require("./package.json").version
+            const tag = process.env.GITHUB_REF_NAME.replace(/^v/, "")
+            if (version !== tag) {
+              console.error(`tag ${tag} does not match package.json ${version}`)
+              process.exit(1)
+            }
+          '
+      - run: pnpm test
+      - run: pnpm build
+      - name: The committed bundle matches the source
+        run: git diff --exit-code -- lib
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: v${{ github.ref_name }}

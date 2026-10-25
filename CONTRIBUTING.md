@@ -57,3 +57,26 @@ pnpm build     # esbuild -> lib/index.js (host) + lib/client.js (browser)
 - A new detector rule needs: a fixture that would be reported, a fixture that must
   stay quiet, and a line in the detector table in both READMEs.
 - Chinese and English UI copy change together (`src/client/locales.ts`).
+
+## Versioning
+
+- `0.x`: a **minor** bump may contain a breaking change; patch releases are fixes.
+- `dsh.engines.dsh` states the DSH version the release was tested against. A DSH
+  release that changes a service this plugin uses gets a new range in the same
+  commit that fixes the compatibility.
+- The vocabulary file format (`version: 1`) is forward compatible: fields are only
+  added, never repurposed, and every new field must be optional.
+- `VERSION` in `src/index.ts` and `package.json` must match; a test enforces it.
+
+## Releasing
+
+1. Bump `package.json` and `VERSION`; add a section for the version at the top of
+   `CHANGELOG.md`.
+2. `pnpm test` and `pnpm build`; commit the source **and** the rebuilt `lib/`.
+3. `git tag -a vX.Y.Z -m "…" && git push origin main --tags`.
+4. The `Release` workflow publishes to npm (needs the `NPM_TOKEN` secret) and opens
+   the GitHub release. Watch the run.
+5. Acceptance, before announcing: in a clean profile, install from npm
+   (`dsh plugin --profile <name> add dsh-semantic-drift@X.Y.Z`), then confirm
+   `GET /semantic-drift/health` reports 5 tools and 8 routes and the panel scans.
+6. Verify the registry: `npm view dsh-semantic-drift version` and check `files`.

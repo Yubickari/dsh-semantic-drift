@@ -85,6 +85,20 @@ Web GUI 里对应「**设置 → 插件 → 从源安装**」。安装后刷新�
 
 `lib/` 已随仓库提交，从 git 安装不需要构建。插件要求 DSH `>=0.2.1-rc.3`。
 
+### 更新
+
+插件里没有自动更新器：DSH 在重新安装时替换已安装的 bundle。
+
+```bash
+# npm，指定版本
+dsh plugin --profile desktop add dsh-semantic-drift@0.2.0
+
+# GitHub，锁定到某个 tag
+dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.2.0
+```
+
+之后重启 DSH，版本号可以看面板底栏，或 `GET /semantic-drift/health`。更新不会改动你的词表文件与已接受例外。
+
 ## 开始使用
 
 1. 在某个工作区打开「语义漂移词表」。
@@ -142,6 +156,21 @@ concepts:
 | `symbol-variant` | 中 | `canonical.symbol` 的拼写变体（大小写/分隔符、已知错拼、编辑距离 ≤ 2），或*同一契约另一种命名*：同基类、同成员、同稳定常量 |
 | | 中 | *词表拼写不在代码里*：`canonical.symbol` 作为代码 token 全仓不出现，而另一种大小写写法有声明或作为声明词头 |
 | `term-unmapped` | 低 | 术语出现在注释或资源里，但规范符号从未在代码中出现 |
+
+每条发现还带一个稳定的规则 id（`detail.rule`），面板就是按它本地化的：
+
+| 规则 | 检测器 | 含义 |
+|---|---|---|
+| `identical-members` | duplicate-type | 成员名与取值都相同 |
+| `derived-copy` | duplicate-type | 成员相同、取值不同、共享同一基类 |
+| `literal-variant` | duplicate-type | 成员相同、取值不同、无共享基类 |
+| `diverged-members` | contract-drift | 成员或成员取值不同 |
+| `normalized` | symbol-variant | 去掉大小写与分隔符后拼写相同 |
+| `confusable` | symbol-variant | 符号中某个词的已知错拼 |
+| `edit-distance` | symbol-variant | 与规范写法相差 ≤ 2 次编辑 |
+| `contract-alias` | symbol-variant | 同一契约、另一个名字 |
+| `canonical-case` | symbol-variant | 规范写法不存在，只有另一种大小写 |
+| `canonical-missing` | term-unmapped | 术语被使用，规范符号未出现 |
 
 成员的**取值**也参与比较（仅限单行简单字面量）：两个枚举成员值互换，过去因为只比名字而看起来"完全一致"。一侧是 `struct`、另一侧是 `class` 的拷贝会在消息里点明。
 

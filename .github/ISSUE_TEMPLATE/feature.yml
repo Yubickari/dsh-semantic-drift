@@ -1,0 +1,24 @@
+name: Feature or rule idea
+description: A capability, a detector rule, or a change in behaviour
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard today, in a sentence or two. Avoid real project names.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+  - type: textarea
+    id: alternative
+    attributes:
+      label: What you do today instead
+  - type: markdown
+    attributes:
+      value: |
+        If this is a new detector rule, it needs a fixture that must be reported
+        **and** one that must stay quiet — see CONTRIBUTING.md.

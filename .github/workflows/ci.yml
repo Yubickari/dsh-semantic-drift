@@ -11,12 +11,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 24]
+        # 22.18 is the first 22.x with type stripping on by default, which the
+        # test files rely on.
+        node: ['22.18.0', '24']
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
+      - uses: pnpm/action-setup@v4          # version comes from packageManager
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -24,5 +24,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
-      - name: Build artifacts are current
+      - name: The committed bundle matches the source
         run: git diff --exit-code -- lib

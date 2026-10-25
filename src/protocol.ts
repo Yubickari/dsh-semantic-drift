@@ -36,6 +36,25 @@ export const CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const
 /** Supported citation shapes (see the `citationStyle` config field). */
 export const CITATION_STYLES = ['file+symbol', 'file:line'] as const
 
+/**
+ * Every `detail.rule` value a detector can emit.
+ *
+ * The panel localizes by rule, so these strings are a stable interface; a test
+ * keeps them and the detector table in both READMEs in agreement.
+ */
+export const DETECTOR_RULES = [
+  'identical-members',
+  'derived-copy',
+  'literal-variant',
+  'diverged-members',
+  'normalized',
+  'confusable',
+  'edit-distance',
+  'contract-alias',
+  'canonical-case',
+  'canonical-missing',
+] as const
+
 /** Detector ids as they appear in findings and in the `detectors` argument. */
 export const DETECTOR_IDS = ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'] as const
 

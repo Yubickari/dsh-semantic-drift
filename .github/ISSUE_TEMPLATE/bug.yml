@@ -1,0 +1,52 @@
+name: Bug report
+description: Something the plugin did wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not paste real project names, paths or code.**
+        Replace them with invented equivalents — this repository is public and the
+        projects it is tested against are not.
+  - type: input
+    id: dsh
+    attributes:
+      label: DSH version
+      description: From Settings → About, or `dsh --version`.
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version
+      description: The footer of the panel, or `GET /semantic-drift/health`.
+    validations:
+      required: true
+  - type: textarea
+    id: health
+    attributes:
+      label: Health output
+      description: |
+        `curl <your DSH URL>/semantic-drift/health`. It reports tool count, route
+        count, whether the prompt section is mounted, and the effective settings.
+      render: json
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command or click, the expected result, the actual one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: |
+        A small tree or vocabulary fragment that shows the problem — invented
+        names only. For detector issues, both sides of the comparison.
+      render: text
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant code
+      description: File and line references are enough; the content is not needed.
