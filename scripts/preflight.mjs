@@ -28,17 +28,25 @@ const version = /export const VERSION = '([^']+)'/.exec(source)?.[1]
 if (version !== manifest.version) fail(`VERSION (${version}) does not match package.json (${manifest.version})`)
 steps.push(`version ${manifest.version}`)
 
-const tagCommit = run('git', ['rev-list', '-n', '1', `v${manifest.version}`]).trim()
-if (tagCommit !== '') {
+const tagName = `v${manifest.version}`
+if (run('git', ['tag', '-l', tagName]).trim() !== '') {
+  const tagCommit = run('git', ['rev-list', '-n', '1', tagName]).trim()
   const head = run('git', ['rev-parse', 'HEAD']).trim()
-  if (tagCommit !== head) console.log(`! tag v${manifest.version} points at ${tagCommit.slice(0, 7)}, HEAD is ${head.slice(0, 7)}`)
+  if (tagCommit !== head) console.log(`! tag ${tagName} points at ${tagCommit.slice(0, 7)}, HEAD is ${head.slice(0, 7)}`)
+  steps.push('version and tag agree')
+} else {
+  steps.push(`no ${tagName} tag yet`)
 }
-steps.push('version and tag agree (or no tag yet)')
 
 run('node', ['scripts/build.mjs'])
+// A version bump rebuilds lib/, so it is normally dirty until the release commit
+// exists. Warn here; CI still verifies that the committed bundle matches a fresh
+// build after the commit.
 const dirty = run('git', ['status', '--porcelain', '--', 'lib']).trim()
-if (dirty !== '') fail(`lib/ is stale:\n${dirty}\nCommit the rebuilt bundle.`)
-steps.push('lib/ is current')
+if (dirty !== '') {
+  console.log('! lib/ was rebuilt and is not committed yet — commit it before tagging')
+}
+steps.push('lib/ rebuilt')
 
 run('node', ['--test', ...['test/**/*.test.ts', 'test/**/*.test.mjs']])
 steps.push('tests pass')
