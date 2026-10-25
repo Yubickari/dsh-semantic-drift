@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Semantic Drift Vocabulary",
-    "description": "The semantic drift vocabulary: keeps one versioned vocabulary of project concepts and shows where code, comments and types spell the same concept several ways. Read-only scan; edits go to a single YAML file."
+    "description": "Semantic Drift Vocabulary: a versioned vocabulary of project concepts, a read-only scan for the places code, comments and types spell the same concept differently, and the same naming rules injected into every agent prompt. Edits go to a single YAML file."
   }
 }

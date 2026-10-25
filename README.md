@@ -2,210 +2,129 @@
 
 **English** · [简体中文](README.zh.md)
 
-One versioned vocabulary file, one read-only scanner, one panel: see where the
-same concept is spelled several ways across a codebase — and decide which
-spelling is the canonical one.
+A DSH plugin that keeps one versioned vocabulary of a project's business concepts,
+shows where the code spells them differently, and gives a person and an agent a
+place to decide which spelling is canonical.
 
-A DSH plugin for the DeepSeek Harness Web GUI. It works on any repository and
-needs no build system, language server or database.
+---
 
-```
-Sidebar: Semantics
-┌───────────────────────────────┬──────────────────────────────────────────────┐
-│ concept                       │ device.target_temperature                    │
-│  device                   2   │ canonical  TargetTemp : °C                   │
-│   target_temperature          │ terms      target temperature, set point     │
-│   device_state                │ ───────────────────────────────────────────  │
-│  network                  1   │ drift (2)                                    │
-│   NetworkStatus               │   target_temp        high   naming variant   │
-│ unclassified              1   │   src/Device/Panel.cs:42                     │
-│                               │   NetworkStatus      high   duplicate        │
-│                               │   src/Debug/Enums/Status.cs:11               │
-└───────────────────────────────┴──────────────────────────────────────────────┘
-```
+## Where the idea comes from
 
-## Contents
+It borrows three judgements from
+[kurapica/schema-node-csharp](https://github.com/kurapica/schema-node-csharp):
 
-- [dsh-semantic-drift](#dsh-semantic-drift)
-  - [Contents](#contents)
-  - [What it solves](#what-it-solves)
-  - [Install](#install)
-  - [Quick start](#quick-start)
-    - [Following the workspace](#following-the-workspace)
-    - [Panel settings](#panel-settings)
-    - [Editing an accepted exception](#editing-an-accepted-exception)
-    - [The unclassified list](#the-unclassified-list)
-  - [The vocabulary file](#the-vocabulary-file)
-  - [Detectors](#detectors)
-  - [Agent tools](#agent-tools)
-  - [Configuration](#configuration)
-  - [Guarantees](#guarantees)
-  - [Limitations, and where it is wrong](#limitations-and-where-it-is-wrong)
-  - [Relationship to SchemaNode](#relationship-to-schemanode)
-  - [Development](#development)
-  - [License](#license)
+1. **Semantics deserve to be an independent, versioned artifact** — not something
+   re-derived from the code on every read.
+2. **A small, enumerable vocabulary** is easier to keep correct than an open-ended
+   type system.
+3. **Drift has to be observable and adjudicable**, not something a team is expected
+   to remember.
 
-## What it solves
+It borrows no implementation. There is no Meta/Property/Relation model, no semantic
+compilation, no code generation. There is one YAML file, one read-only scanner, one
+panel, and five agent tools.
 
-The same business concept gets translated again at every layer — the database
-column, the DTO, the client field, the protocol enum, the UI label — and the
-translations drift apart. Nothing records that "these five identifiers are
-supposed to mean one thing", so nothing can check them.
+## What it can do
 
-This plugin adds exactly one artifact:
+- **Record each concept once.** An id, the human terms, a kind, the canonical
+  symbol (plus type and unit when they matter) and a note — in one YAML file you
+  review and diff like code.
+- **Find drift without a build system.** The same type declared twice, two copies
+  that have diverged, a spelling variant of a canonical name, a term used in
+  comments but never in code. No compiler, language server or database involved.
+- **Work from an empty vocabulary.** The structural detectors compare code with
+  code, so a fresh project has findings before its first concept exists.
+- **Tell a copy from a derivative.** Identical members and values are a copy;
+  identical members with different values under one base are a parameterized
+  derivative that must not be merged; a same-shaped type under another name is a
+  renamed contract.
+- **Adjudicate instead of silencing.** An accepted exception carries a reason and
+  the smallest scope that covers the case, and it can be edited, reworded, removed
+  or undone later. Each one shows how many findings it actually mutes.
+- **Put the vocabulary in the agent's context.** Five tools plus a prompt section
+  tell an agent what to call things, and ask it to record a deviation instead of
+  inventing a name silently.
 
-```
-.dsh/semantics.yaml   —  the concepts, their canonical spelling, their terms
-```
+## What it cannot do
 
-and three ways to use it:
-
-| | |
-|---|---|
-| **Vocabulary** | a versioned list of `concept → canonical symbol` in one YAML file |
-| **Findings** | a read-only scan that reports where the code disagrees with it |
-| **Adjudication** | the panel and five agent tools to accept, edit, or promote a finding |
+- **It is lexical, not semantic.** It compares identifiers, member names and
+  comment text. Two unrelated types that share a name can still be reported.
+- **It does not enforce anything.** The prompt rules are advice; an agent can
+  deviate, and the only defence is that the deviation must be recorded.
+- **It does not fix code.** No auto-rename, no auto-merge, no patch. The scan is
+  trusted precisely because it never writes your source.
+- **Structural detection covers three languages** — C#, TypeScript and Python
+  declarations. Other files contribute comment/string evidence only.
+- **Units are stored, not checked.** `canonical.unit` is displayed and validated
+  as a string; a unit drift detector is not part of this version.
+- **One workspace, one vocabulary.** There is no cross-repository view.
 
 ## Install
 
 DSH installs plugins through a profile. Add the bundle, then enable its row:
 
 ```bash
-# from GitHub (works today; the repository starts private)
-dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift
-
-# or from a local checkout
+# from a local checkout (works today)
 dsh plugin --profile desktop add link:/path/to/dsh-semantic-drift
+
+# from GitHub, once the repository is public
+dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift
 ```
 
 The Web GUI offers the same thing under **Settings → Plugins → Install from
-source** with the same spec. After installation, refresh the page once so the
-browser half loads, then pick **Semantics** in the sidebar.
+source**. After installing, refresh the page once so the browser half loads, then
+pick **Semantic Drift Vocabulary** in the sidebar.
 
-`lib/` is committed, so installing from a git source needs no build step.
-Publishing to npm is possible but not required; the unscoped name
-`dsh-semantic-drift` is free.
+`lib/` is committed, so installing from a git source needs no build step. The
+unscoped npm name `dsh-semantic-drift` is free but not required.
 
 ## Quick start
 
-1. Open the **Semantics** panel in a workspace.
-2. Press **Create vocabulary** — this writes `.dsh/semantics.yaml` with the
-   default exclusions and no concepts.
+1. Open **Semantic Drift Vocabulary** in a workspace.
+2. Press **Create vocabulary** — this writes `.dsh/semantics.yaml` with the default
+   exclusions and no concepts.
 3. Press **Scan**. Before any concept exists you still get structural findings
-   ("the same type is defined twice"), which is the cold-start value: the scan
-   does not need your vocabulary to find duplicated contracts.
-4. Register a concept with **New concept** (or the `semantic_upsert` tool) and
-   scan again. Vocabulary-dependent findings (naming variants, unmapped terms)
-   now have something to compare against.
-5. Accept a finding you intend to keep, with a **reason**. The exception is
-   written into the vocabulary, so the next scan stays quiet about it and the
-   next reader learns why.
+   ("the same type is defined twice"), which is the cold-start value: the scan does
+   not need your vocabulary to find duplicated contracts.
+4. Register a concept with **New concept** (or the `semantic_upsert` tool) and scan
+   again. Vocabulary-dependent findings — naming variants, unmapped terms — now
+   have something to compare against.
+5. Accept a finding you intend to keep: choose the **scope** (this file, every
+   directory with the same file name, the whole symbol, or a custom glob), read the
+   count it will mute, and write a **reason**. The exception is written into the
+   vocabulary, so the next scan stays quiet about it and the next reader learns why.
 
-### Following the workspace
+## The panel
 
-**Settings → Follow the workspace** makes the panel follow the current DSH
-workspace: switching sessions switches the vocabulary. It does **not** scan —
-opening the panel or switching to it never starts work on its own, so moving
-between workspaces and plugins stays cheap. Turning following off pins the
-workspace you last picked from the dropdown; the choice is remembered per browser
-(not stored in the project). Picking a workspace from the dropdown pins it too,
-because an explicit choice outranks following.
-
-Its child switch, **Rescan automatically**, is only enabled while following is on
-and only fires when following moves the panel to another workspace. Manual scans,
-and the rescan after a save, an accept or a removal, are not affected by it: those
-are consequences of an action you just took.
-
-A workspace that has not been scanned says so — both above the body and in the
-footer — with a Scan button, instead of looking like a workspace with no drift.
-
-Next to the workspace picker an icon shows the mode: a crosshair while following
-the session, a pin while pinned, with the mode and the click action in its tooltip.
-Clicking it switches modes, exactly like the settings switch.
-
-Re-opening the panel does not throw the report away: the tab remembers the last
-scan per workspace for a configurable time (default 10 minutes), so coming back
-from another panel shows the same view instead of asking for a scan again. The
-footer dates it (`scanned 2 min ago`). Past the retention it raises a filled amber
-badge — white text on a deepened accent, legible in both themes — and the same
-badge appears when the vocabulary file has changed since the scan (its mtime no
-longer matches). Both badges are the rescan control: click one and the workspace
-is scanned again, with the same hint on hover. Setting the retention to 0 turns
-the memory off.
-
-A selected concept carries **Edit** and **Delete** next to its title. Deleting
-removes the entry and every accepted exception it recorded from the vocabulary
-file; no code is touched, and findings only it covered return to the unclassified
-list.
-
-### Panel settings
-
-The toolbar is icon-only — scan, new concept, raw YAML and settings — all with the
-same bordered button, and each icon describes itself immediately on hover (a
-styled tooltip, not the browser's delayed `title`) and to a screen reader. The sidebar entry is
-**Semantic Drift Vocabulary**, the same name as the panel title. The toolbar holds
-the only scan button; the footer only reports.
-
-Re-opening the panel returns to the page it was left on: the selected concept (or
-the unclassified list) is remembered per workspace, in the browser, and restored
-only if that concept still exists. Search, filters and open editors are not
-remembered — those describe a momentary task, not a place.
-
-The gear at the top right opens the panel's own settings:
-
-- **Follow the workspace** — the switch described above.
-- **Rescan automatically** — its child switch; disabled until following is on,
-  and it only rescans when following switches workspace.
-- **Keep scan results for N minutes** — how long a report is reused when the panel
-  is re-opened; 0 disables the memory, so every entry needs a manual scan.
-- **Notifications close after N seconds** — `0` keeps them until dismissed.
-  Notices that carry validation issues never close themselves; they are the text
-  you have to act on.
-- **Show low-confidence findings** — the same toggle that used to sit beside the
-  drift list.
-- **This project (read-only)** — the effective plugin settings (vocabulary path,
-  prompt injection, citation style, tool confidence floor, scan budgets,
-  detectors). They belong to the plugin row, so they are edited under
-  **Settings → Plugins → Semantic Drift Vocabulary**, and shown here so one page answers
-  "what is this panel actually doing".
-
-Every item shown here is a per-browser preference: it never enters
-`.dsh/semantics.yaml` and never changes the repository.
-
-### Editing an accepted exception
-
-An accepted exception is a record, not a stamp: each row in the concept detail
-carries **Edit** and **Remove**, and the section header offers **Clear all** when a
-concept has more than one.
-
-- **Edit** reopens the scope picker with the current glob selected and shows how
-  many findings the new scope would mute next to the current count, so a glob
-  that was too wide can be narrowed without guessing. The reason is editable; the
-  symbol is not, because it is the observed spelling — remove and re-accept to
-  change it.
-- **Remove** names the finding count that will reappear and asks for confirmation.
-  The success notice then offers **Undo**, which re-adds the exception as it was.
-- **Clear all** removes every exception of a concept after a confirmation that
-  states the count; undo restores the whole set.
-- An operation loads the file again inside the store before writing, so it applies
-  to what is on disk rather than to the snapshot the browser held.
-- The **current mute count** on a row comes from the scan and its mute
-  attribution, not from the visible finding list: a muted finding is by
-  definition not in that list. A row that reports "mutes nothing" most likely has
-  a scope that matches nothing — that is itself worth seeing, which is why the
-  number is shown rather than hidden.
-
-### The unclassified list
-
-The tree's **unclassified** row lists findings that no vocabulary concept owns.
-The structural detectors compare code with code, so they need no vocabulary at
-all: that list holds real findings before the first concept exists. A finding
-moves under a concept automatically only when that concept's `canonical.symbol`
-equals the type name; otherwise the decision is yours — accept it under a concept
-you pick in the dialog, or record it as a new concept, which pre-fills the
-suggested id and the canonical symbol. Adding terms alone does not reclassify
-anything, because terms drive the naming and term detectors, not the structural
-ones.
+- **Left tree**: concepts grouped by id prefix, with a finding count per group, a
+  group-level add button, a search field and a quick-create button.
+- **Concept detail**: the concept's fields, the findings attributed to it, and its
+  accepted exceptions — each with **Edit**, **Remove**, and a **Clear all** action
+  when there is more than one. A row reads "mutes N now"; when N is 0 the scope
+  most likely matches nothing, which is itself worth seeing.
+- **Toolbar**: icon-only scan, new concept, raw YAML and settings. Every icon
+  describes itself immediately on hover and to a screen reader. The toolbar holds
+  the only scan button; the footer only reports.
+- **Workspace mode**: an icon next to the workspace picker — a crosshair while the
+  panel follows the session's workspace, a pushpin while it is pinned. Clicking it
+  switches modes, exactly like the setting.
+- **Scan memory**: re-opening the panel shows the report this tab already has for
+  that workspace (default 10 minutes, configurable) instead of asking for a scan.
+  The footer dates it; past the retention it raises a filled amber badge, and the
+  same badge appears when the vocabulary file has changed since the scan. Both
+  badges are the rescan control.
+- **Remembered page**: the panel returns to the concept (or the unclassified list)
+  it was on, and only restores a concept that still exists. Search, filters and open
+  editors are deliberately not remembered.
+- **Raw YAML**: edit the file directly; a save is validated before it is written and
+  every problem carries its YAML line.
+- **Unclassified**: findings no concept owns. They exist before the first concept,
+  because structural detectors need no vocabulary. Accept one under a concept, or
+  promote it into a new concept with the id and symbol pre-filled.
+- **Settings** (the gear): follow-the-workspace, rescan-on-follow, how long a scan
+  is kept, how long notices stay, low-confidence findings, and a read-only view of
+  the plugin's effective configuration. These are per-browser preferences; none of
+  them touches the repository.
 
 ## The vocabulary file
 
@@ -231,11 +150,11 @@ concepts:
 ```
 
 `terms` may be written in any language: the scanner matches them as plain text in
-comments, strings and resource files. The examples in this English file use
-English terms; the [Chinese README](README.zh.md) uses Chinese ones.
+comments, strings and resource files. This English README uses English terms; the
+[Chinese README](README.zh.md) uses Chinese ones.
 
-Validation runs before every write; a document that fails is never written, and
-the reported issue carries the YAML line or the document path:
+Validation runs before every write; a document that fails is never written, and the
+reported issue carries the YAML line or the document path:
 
 * `id` must be unique and look like `group.name`;
 * `canonical.symbol` must be a plain identifier and unique across concepts;
@@ -245,44 +164,44 @@ the reported issue carries the YAML line or the document path:
 * a YAML syntax error is reported with its line and column, and the file is left
   untouched.
 
-Saving is canonical and idempotent: saving the same document twice produces the
-same bytes. Hand edits in the raw editor keep their own formatting.
+Saving is canonical and idempotent: saving the same document twice produces the same
+bytes. Hand edits in the raw editor keep their own formatting.
 
 ## Detectors
 
 | Detector | Confidence | Signal |
 |---|---|---|
 | `duplicate-type` | high | **same members and same values** in two units: a real copy, and merging it is a safe suggestion |
-| | high | *derived copy*: same member names, different values, one base type every declaration shares — a parameterized derivative, never reported as a merge candidate |
-| | high | *same names, different values*: no shared base, so the two sides simply disagree about what those names mean |
-| `contract-drift` | high | the same type in two units with different members, or with different **values** for the same members. Skipped when one type shadows its own base (the "missing" members are inherited) or when both are private nested helpers — a local name, not a boundary |
+| | high | *derived copy*: same member names, different values, one base type every declaration shares — a parameterized derivative, never a merge candidate |
+| | high | *same names, different values*: no shared base, so the two sides disagree about what those names mean |
+| `contract-drift` | high | the same type in two units with different members, or with different **values** for the same members. Skipped when one type shadows its own base (the "missing" members are inherited) or when both are private nested helpers |
 | `symbol-variant` | medium | a spelling variant of `canonical.symbol` (case/separator form, a known confusable, edit distance ≤ 2), or *same contract, other name*: a type with the same base, member set and stable literal as the canonical type |
-| | medium | *vocabulary spelling is not in the code*: `canonical.symbol` appears nowhere as a code token while a different-case spelling is declared or heads a declaration (`SensorRATE` recorded, the code writes `SensorRate…`) |
+| | medium | *vocabulary spelling is not in the code*: `canonical.symbol` appears nowhere as a code token while a different-case spelling is declared or heads a declaration |
 | `term-unmapped` | low | a declared term appears in comments or resources, but the canonical symbol never appears in code |
 
-Member **values** are compared too, when they are simple single-line literals. That
-closes a real false negative: two enums whose members swapped values used to look
-identical because only names were compared. A copy declared as a `struct` on one
-side and a `class` on the other says so in the message, because the marshalling
-and identity rules differ even when the members do not.
+Member **values** are compared when they are simple single-line literals: two enums
+whose members swapped values used to look identical when only names were compared.
+A copy declared as a `struct` on one side and a `class` on the other says so in the
+message, because the marshalling and identity rules differ even when the members do
+not.
 
 Two filters keep the list short: a variant only fires when the file also mentions
-one of the concept's terms, or when both spellings share the same leading token;
-and a "contract drift" pair must share at least one member, so two unrelated
-classes that happen to be named `MainWindow` are not reported.
+one of the concept's terms, or when both spellings share the same leading token; and
+a contract-drift pair must share at least one member, so two unrelated classes that
+happen to be named `MainWindow` are not reported.
 
-Deliberate exclusions, because comparing them produces only noise: entry-point
-classes (`Program`/`Startup` with a `Main`), `partial` declarations (one file
-never shows the whole member list), generated files (`*.Designer.cs`, `*.g.cs`,
-`auto-generated` headers), declarations with fewer than two members, subclasses
-that shadow a base of the same name, and private nested helpers.
+Deliberately excluded, because comparing them produces only noise: entry-point
+classes (`Program`/`Startup` with a `Main`), `partial` declarations (one file never
+shows the whole member list), generated files (`*.Designer.cs`, `*.g.cs`,
+`auto-generated` headers), declarations with fewer than two members, subclasses that
+shadow a base of the same name, and private nested helpers.
 
 Language coverage: C# (`class`/`struct`/`interface`/`record`/`enum`), TypeScript
-(`interface`/`type`/`enum`/`class`), Python (`class`) for the structural
+(`interface`/`type`/`enum`/`class`) and Python (`class`) for the structural
 detectors; every other whitelisted extension still contributes comment/string
 evidence for `term-unmapped`.
 
-## Agent tools
+## Working with an agent
 
 Five tools, available in every session, sharing the panel's validation:
 
@@ -292,18 +211,29 @@ Five tools, available in every session, sharing the panel's validation:
 | `semantic_get` | one concept by id or symbol, plus its accepted exceptions; `includeDrift` adds a scan |
 | `semantic_upsert` | create or update a concept (`merge` keeps omitted fields, `replace` rebuilds it) |
 | `drift_scan` | structured findings with detector, confidence and citation |
-| `semantic_accept` | manage accepted exceptions: `add` (default), `update` its scope or reason, `remove` one, or `clear` a concept; `reason` is required to add or update. `previousPath` locates the entry to change — `path` is the scope an update moves *to*, and removing by `path` is refused with that hint instead of silently doing nothing |
+| `semantic_accept` | `add` (default), `update` scope or reason, `remove` one, `clear` a concept; `reason` is required to add or update. `previousPath` locates the entry to change — `path` is the scope an update moves to |
 
-A vocabulary file that cannot be parsed is reported as such: `semantic_list` and
-`semantic_get` carry `valid: false` and the first issues, the prompt section says
-the file cannot be parsed instead of pretending the project has no concepts, and
-every write is refused until it is fixed.
+With `announceToAgent` on, every session receives one prompt section: the concepts
+of the workspace it runs in, and the rules that go with them — look the concept up
+before naming something, spell it exactly as the canonical symbol does, register a
+missing concept first, record a deliberate deviation with a reason. The section is
+capped at 200 lines and summarized past 120 concepts.
 
-Every refusal is a value (`{ ok: false, code, message }`), never an exception, and
-`drift_scan` is documented as read-only. Renaming a data field without calling
-`semantic_get` first is exactly the failure this plugin exists to prevent, so with
-`announceToAgent` on, the concepts and that rule are injected into the prompt as
-one section (at most 200 lines, summarized past 120 concepts).
+A refusal is always a value (`{ ok: false, code, message, issues }`), never an
+exception, so an agent can react to it. A vocabulary file that cannot be parsed is
+reported as `valid: false` with its first issues — reads do not pretend the project
+has no concepts, and writes are refused until it is fixed.
+
+The loop this is built for:
+
+1. the agent receives a task and calls `semantic_get` for the concept it is about
+   to touch;
+2. a missing concept is registered with `semantic_upsert` before any code is
+   written;
+3. after editing, `drift_scan` shows whether the change introduced a variant or a
+   divergence;
+4. a finding that is intentional is accepted with a reason and a narrow scope;
+5. the vocabulary diff is reviewed like any other change.
 
 ## Configuration
 
@@ -326,39 +256,28 @@ configuration UI. Changing a setting reloads the plugin row.
 
 * **The scan never writes.** It opens files for reading and nothing else; the
   vocabulary is the only file the plugin ever writes.
-* **One write path.** The panel and the tools both go through the store, which
-  serializes writes per file, validates before writing, and writes atomically.
-* **No daemon, no watcher, no index.** No background process, no file watcher, no
-  cache directory. A scan is computed from disk when you ask for it.
-* **Bounded.** A deadline and a finding cap always end a scan, and the result
-  says which one did.
-* **Cheap to repeat.** Parsing a file is most of a scan's cost, and a scan runs
-  after every vocabulary write, so the declarations of unchanged files are reused
-  (keyed by path, size and mtime; a file touched in the last second is always
-  re-parsed). Two identical scans that overlap share one computation. On a 1,666
-  file C# repository a repeat scan takes about 0.55 s instead of 1.3 s, and the
-  numbers a reader sees are computed from disk either way — no findings are
-  cached.
-* **Workspace-scoped.** A request can only read and write inside a registered
-  DSH workspace (or the Host's default directory); anything else is refused. A
-  write must name its workspace: a write that omits it is refused rather than
-  falling back to the default directory, so a forgotten field cannot create a
-  vocabulary in a project nobody mentioned.
-* **One deliberate exception to "compute on demand":** the browser keeps the last
-  scan per workspace in `sessionStorage` for a bounded time, only to render the
-  panel again without rescanning. It never enters the repository, a closed tab
-  forgets it, and the agent tools never read it — a tool call always scans. The
-  footer dates the report and marks it stale, and the vocabulary mtime is
-  compared so an edited vocabulary shows a warning instead of a silent lie.
-* **Diagnosable.** `GET /semantic-drift/health` reports what this activation
-  mounted — tool count, route count, whether the prompt section is registered —
-  plus the effective settings, so a half-mounted plugin is visible instead of
-  silent. The panel is a thin view over that same service.
+* **One write path.** Panel and tools both go through the store, which serializes
+  writes per file, validates before writing, and writes atomically.
+* **No daemon, no watcher, no index.** A scan is computed from disk when you ask for
+  it.
+* **Bounded.** A deadline and a finding cap always end a scan, and the result says
+  which one did.
+* **Cheap to repeat.** The declarations of unchanged files are reused, keyed by path,
+  size and mtime (a file touched within the last second is always re-parsed), and
+  two identical scans that overlap share one computation. Findings themselves are
+  never cached.
+* **Workspace-scoped.** A request can only read and write inside a registered DSH
+  workspace (or the Host's default directory). A write must name its workspace: a
+  write that omits it is refused rather than falling back to the default directory.
+* **One deliberate exception to "compute on demand".** The browser keeps the last
+  scan per workspace in `sessionStorage` for a bounded time, only to re-render the
+  panel without rescanning. It never enters the repository, a closed tab forgets it,
+  the agent tools never read it, and the footer dates it.
+* **Diagnosable.** `GET /semantic-drift/health` reports what this activation mounted
+  — tool count, route count, whether the prompt section is registered — plus the
+  effective settings.
 
-Typical cost on a real 1,700-file C# repository: **~1.2 s**, ~18 MB read, no
-files changed.
-
-## Limitations, and where it is wrong
+## Limits
 
 This is a lexical tool. It knows identifiers, member names and comment text, not
 meaning.
@@ -366,56 +285,51 @@ meaning.
 * **A name is not a contract.** Two types with one name may be unrelated; the
   shared-member filter removes most of that, not all.
 * **Member lists are parsed with regular expressions**, not a compiler. An exotic
-  declaration is skipped (and counted) rather than guessed. Files that are
-  generated are skipped entirely.
-* **Edit distance is a blunt instrument.** It only runs over declared type names
-  of at least six characters, and only together with a shared leading token or a
-  term in the same file. Expect a few "same concept?" findings at medium
-  confidence — that is what `accepted` is for.
-* **`term-unmapped` is a heuristic** (low confidence, folded by default): a term
-  in a comment does not prove the code should have that symbol.
-* **No unit checking** is implemented. `canonical.unit` is displayed and stored,
-  but D5 (unit drift) is not part of this version.
-* **Single-token variants are missed** when the canonical and the observed
-  spelling differ by more than two edits (`SetTemp` vs `TargetTemperature`). That
-  is a "different name", not a "misspelling"; the vocabulary-with-terms model is
-  how a project records that, and `term-unmapped` reports the comment side.
+  declaration is skipped and counted rather than guessed; generated files are
+  skipped entirely.
+* **Edit distance is a blunt instrument.** It only runs over declared type names of
+  at least six characters, together with a shared leading token or a term in the same
+  file. Expect a few "same concept?" findings at medium confidence — that is what
+  `accepted` is for.
+* **`term-unmapped` is a heuristic** (low confidence, folded by default): a term in a
+  comment does not prove the code should have that symbol.
+* **A rename across tokens is missed** when the two spellings differ by more than two
+  edits (`SetTemp` vs `TargetTemperature`). That is a different name, not a
+  misspelling; record it as a concept with terms, and let `term-unmapped` report the
+  comment side.
 * **The panel cannot open a file** in an editor; it copies a citation in the
-  configured style instead. There is no auto-fix, by design: the scan is trusted
-  only because it never touches your code.
-* **No screenshot yet.** The layout above is a sketch of the real panel; a
-  screenshot of live data will replace it once the first visual check is done.
-
-## Relationship to SchemaNode
-
-The design borrows three judgements from
-[kurapica/schema-node-csharp](https://github.com/kurapica/schema-node-csharp):
-semantics deserve to be an independent, versioned entity; a small enumerable
-vocabulary is more maintainable than an open-ended type system; drift has to be
-observable and adjudicable rather than remembered. It borrows **no
-implementation** — no meta/property/relation/function model, no semantic
-compilation, no code generation. One YAML file and a scanner.
+  configured style instead. There is no auto-fix, by design.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 103 tests, no test framework
-pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
+pnpm test      # typecheck + node --test
+pnpm build     # esbuild -> lib/index.js (host) + lib/client.js (browser)
 ```
 
-`tsc` deliberately covers only the browser half: it needs no host package types,
-and it is the check that catches a helper renamed in one place but called in
-another — a class of bug that a bundler happily ships and that a static render
-never reaches. The four flow tests in `test/panel-flow.test.mjs` then load the
-built `lib/client.js` in jsdom, stub `fetch` with the host's real payloads, and
-drive the panel the way a user does.
+Three layers of tests, each for a failure the one before it cannot see:
 
-`src/` is the source of truth; `lib/` is the built artifact and is committed so a
+- `test/*.test.ts` — the store, the scanner, the detectors, the service and the
+  locale dictionaries, against hand-made fixtures;
+- `test/fiber.test.ts` — mounts the **built** host artifact on a fake context and
+  drives its tools, routes and prompt section the way the host does;
+- `test/*.test.mjs` — renders components and drives the **built** browser bundle in
+  jsdom, stubbing `fetch` with the host's real payloads.
+
+`tsc` deliberately covers only the browser half: it needs no host package types, and
+it is the check that catches a helper renamed in one place but called in another — a
+class of bug a bundler happily ships and a static render never reaches.
+
+`src/` is the source of truth; `lib/` is the built artifact and is committed, so a
 git install needs no build. The browser half is wrapped in DSH's
 `window.__ModuleLoader__.load({ id, factory })` contract with React left external.
 The host half imports only `yaml` and `@deepseek-ai/schemastery`.
+
+Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md), which also states the rule
+this repository is held to: **no real project may be identifiable anywhere** — code,
+tests, fixtures, documentation or commit messages — because the projects this plugin
+is developed against are private.
 
 ## License
 

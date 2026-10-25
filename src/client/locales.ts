@@ -12,7 +12,7 @@
 const zh = {
   'entry.label': '语义漂移词表',
   'panel.title': '语义漂移词表',
-  'panel.subtitle': '同一概念在代码里的不同写法',
+  'panel.subtitle': '词表 · 漂移扫描 · Agent 命名契约',
   'action.rescan': '重新扫描',
   'action.new': '新建概念',
   'action.yaml': 'YAML',
@@ -224,7 +224,7 @@ const zh = {
 const en: Record<keyof typeof zh, string> = {
   'entry.label': 'Semantic Drift Vocabulary',
   'panel.title': 'Semantic Drift Vocabulary',
-  'panel.subtitle': 'One concept, several spellings',
+  'panel.subtitle': 'Vocabulary · drift scan · agent naming contract',
   'action.rescan': 'Scan',
   'action.new': 'New concept',
   'action.yaml': 'YAML',
