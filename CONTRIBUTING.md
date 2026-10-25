@@ -70,9 +70,15 @@ pnpm build     # esbuild -> lib/index.js (host) + lib/client.js (browser)
 
 ## Publishing credentials
 
-The release workflow publishes with a token in the `NPM_TOKEN` secret. npm demands
-a one-time password for a publish unless the token is allowed to skip it, which is
-the usual reason a release fails with `EOTP`:
+The release workflow publishes through **Trusted Publishing**: GitHub's OIDC identity
+is exchanged for a short-lived npm credential, so there is no token in the repository
+and no secret to rotate. It requires two things — the package must list this
+repository and `release.yml` under Trusted publishing on npmjs, and provenance needs
+a public repository. Both are satisfied today.
+
+If trusted publishing is unavailable, the token fallback below still works. npm
+demands a one-time password for a publish unless the token is allowed to skip it,
+which is the usual reason a release fails with `EOTP`:
 
 - **Granular token** (preferred): Access Tokens → Generate New Token → Granular,
   scope it to `dsh-semantic-drift` with *Read and write*, and tick **Bypass 2FA**.

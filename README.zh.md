@@ -68,7 +68,7 @@ DSH 中显示的名字是 **语义漂移词表**（英文 Semantic Drift Vocabul
 
 ## 安装
 
-发布后，以下任一方式都可安装到某个 profile：
+以下任一方式都可安装到某个 profile：
 
 ```bash
 # 从 npm

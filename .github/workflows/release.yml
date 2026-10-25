@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: write      # create the GitHub release
+  id-token: write      # OIDC: npm trusted publishing + provenance
 
 jobs:
   publish:
@@ -24,6 +25,9 @@ jobs:
           node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; the Node 24 bundle is newer, but
+      # the version is stated rather than assumed.
+      - run: npm install -g npm@11
       - run: pnpm install --frozen-lockfile
       - name: The tag matches the manifest
         run: |
@@ -39,18 +43,10 @@ jobs:
       - run: pnpm build
       - name: The committed bundle matches the source
         run: git diff --exit-code -- lib
-      - name: The npm token is configured
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::The NPM_TOKEN secret is empty. Add a granular npm token (read+write on this package) under Settings → Secrets and variables → Actions, then push the tag again."
-            exit 1
-          fi
-          npm whoami
-      # Provenance needs a public repository: GitHub signs the attestation against
-      # a source commit that anyone must be able to fetch. Add `--provenance` back
-      # once the repository is public.
+      # No token: the publish authenticates with GitHub's OIDC identity, which the
+      # package must be told to trust first — npmjs → the package → Settings →
+      # Trusted publishing → GitHub Actions, repository `Yubickari/dsh-semantic-drift`,
+      # workflow `release.yml`. Provenance is produced by the same exchange.
       - name: Publish to npm
         run: |
           set -euo pipefail
@@ -59,9 +55,7 @@ jobs:
             echo "::notice::dsh-semantic-drift@${version} is already on npm; nothing to publish"
             exit 0
           fi
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          npm publish --provenance --access public
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:

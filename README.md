@@ -98,7 +98,7 @@ nothing until someone asks for it. Numbers are in [Token cost](#token-cost).
 
 ## Install
 
-Once published, any of these installs the bundle into a profile:
+Any of these installs the bundle into a profile:
 
 ```bash
 # from npm
