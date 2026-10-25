@@ -244,7 +244,7 @@ concepts:
 ```bash
 pnpm install
 pnpm typecheck     # 对浏览器半边做 tsc 检查：能抓住"改了名还在调用"的标识符
-pnpm test          # 类型检查 + node --test，95 个用例，无测试框架依赖
+pnpm test          # 类型检查 + node --test，93 个用例，无测试框架依赖
 pnpm build         # esbuild → lib/index.js（host）+ lib/client.js（浏览器）
 ```
 

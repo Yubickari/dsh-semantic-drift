@@ -373,7 +373,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 95 tests, no test framework
+pnpm test          # typecheck + node --test, 93 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 
