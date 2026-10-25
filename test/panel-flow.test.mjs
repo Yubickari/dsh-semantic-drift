@@ -965,3 +965,32 @@ test('the toolbar is icon-only and describes each action for hover and screen re
     resetPrefs()
   }
 })
+
+test('the workspace mode is an icon that says which mode it is in', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => json(STATE)
+  try {
+    const { container, root } = mountPanel()
+    await flush(6)
+    const mode = container.querySelector('.sd-mode-button')
+    assert.ok(mode !== null, 'the mode button must exist')
+    assert.equal((mode.textContent ?? '').trim(), '', 'it must be icon-only')
+    assert.equal(mode.getAttribute('data-mode'), 'following')
+    assert.match(mode.getAttribute('aria-label') ?? '', /跟随当前工作区/)
+    assert.equal(mode.getAttribute('aria-pressed'), 'false')
+
+    click(mode)
+    await flush(2)
+    const pinned = container.querySelector('.sd-mode-button')
+    assert.equal(pinned?.getAttribute('data-mode'), 'pinned')
+    assert.match(pinned?.getAttribute('aria-label') ?? '', /已固定/)
+    assert.equal(pinned?.getAttribute('title'), pinned?.getAttribute('aria-label'))
+    assert.equal(pinned?.getAttribute('aria-pressed'), 'true')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})

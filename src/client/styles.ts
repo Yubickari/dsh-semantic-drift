@@ -94,6 +94,9 @@ export const PANEL_CSS = `
 @keyframes sd-spin { to { transform: rotate(360deg); } }
 .sd-button-danger { color: var(--dsw-alias-state-error-primary); }
 .sd-button-danger:hover:not(:disabled) { border-color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); }
+.sd-mode-button[data-mode='pinned'] { color: var(--dsw-alias-brand-primary); }
+.sd-mode-button[data-mode='following'] { color: var(--dsw-alias-label-secondary); }
+.sd-mode-button[data-mode='pinned']:hover:not(:disabled) { border-color: var(--dsw-alias-brand-primary); }
 .sd-switch {
   display: inline-flex;
   align-items: center;

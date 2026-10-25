@@ -39,7 +39,7 @@ import { DriftList } from './DriftList.tsx'
 import { RawEditor } from './RawEditor.tsx'
 import { maybeT, t, tf } from './locales.ts'
 import type { MessageKey } from './locales.ts'
-import { CodeIcon, PlusIcon, RefreshIcon, SettingsIcon, TrashIcon } from './icons.tsx'
+import { CodeIcon, FollowIcon, PinIcon, PlusIcon, RefreshIcon, SettingsIcon, TrashIcon } from './icons.tsx'
 import { PANEL_CSS } from './styles.ts'
 
 /** Standard props the shell passes to a `main` entry. Both are optional so a
@@ -882,12 +882,14 @@ export function SemanticPanel(props: PanelProps) {
         )}
         <button
           type="button"
-          className="sd-chip"
-          data-active={!auto}
-          title={auto ? t('auto.onHint') : t('auto.offHint')}
+          className="sd-button sd-button-ghost sd-button-icon sd-mode-button"
+          data-mode={auto ? 'following' : 'pinned'}
+          title={auto ? t('header.following') : t('header.pinned')}
+          aria-label={auto ? t('header.following') : t('header.pinned')}
+          aria-pressed={!auto}
           onClick={toggleAuto}
         >
-          {auto ? t('header.following') : t('header.pinned')}
+          {auto ? <FollowIcon /> : <PinIcon />}
         </button>
         <div className="sd-actions">
           <button

@@ -119,6 +119,10 @@ are consequences of an action you just took.
 A workspace that has not been scanned says so — both above the body and in the
 footer — with a Scan button, instead of looking like a workspace with no drift.
 
+Next to the workspace picker an icon shows the mode: a crosshair while following
+the session, a pin while pinned, with the mode and the click action in its tooltip.
+Clicking it switches modes, exactly like the settings switch.
+
 Re-opening the panel does not throw the report away: the tab remembers the last
 scan per workspace for a configurable time (default 10 minutes), so coming back
 from another panel shows the same view instead of asking for a scan again. The
@@ -373,7 +377,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 93 tests, no test framework
+pnpm test          # typecheck + node --test, 94 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 
