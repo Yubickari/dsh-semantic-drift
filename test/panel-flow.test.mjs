@@ -953,12 +953,20 @@ test('the toolbar is icon-only and describes each action for hover and screen re
       assert.equal((button.textContent ?? '').trim(), '', `button must be icon-only: ${button.outerHTML.slice(0, 80)}`)
       const label = button.getAttribute('aria-label')
       assert.ok(label !== null && label !== '', 'every icon button needs an accessible label')
-      assert.equal(button.getAttribute('title'), label, 'hover text matches the accessible label')
+      assert.equal(button.getAttribute('data-tip'), label, 'the styled hover text matches the accessible label')
+      assert.equal(button.hasAttribute('title'), false, 'no native title tooltip behind the styled one')
     }
     assert.deepEqual(
       actions.map(button => button.getAttribute('aria-label')),
       ['重新扫描', '新建概念', 'YAML', '设置'],
     )
+    for (const button of actions) {
+      assert.equal(button.classList.contains('sd-button'), true)
+      assert.equal(button.classList.contains('sd-button-ghost'), false, 'no borderless outlier in the toolbar')
+    }
+    const mode = container.querySelector('.sd-mode-button')
+    assert.ok(mode !== null)
+    assert.equal(mode.classList.contains('sd-button-ghost'), false, 'the mode button matches the toolbar')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
@@ -986,7 +994,7 @@ test('the workspace mode is an icon that says which mode it is in', async () => 
     const pinned = container.querySelector('.sd-mode-button')
     assert.equal(pinned?.getAttribute('data-mode'), 'pinned')
     assert.match(pinned?.getAttribute('aria-label') ?? '', /已固定/)
-    assert.equal(pinned?.getAttribute('title'), pinned?.getAttribute('aria-label'))
+    assert.equal(pinned?.getAttribute('data-tip'), pinned?.getAttribute('aria-label'))
     assert.equal(pinned?.getAttribute('aria-pressed'), 'true')
     reactAct(() => root.unmount())
   } finally {

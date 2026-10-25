@@ -882,9 +882,9 @@ export function SemanticPanel(props: PanelProps) {
         )}
         <button
           type="button"
-          className="sd-button sd-button-ghost sd-button-icon sd-mode-button"
+          className="sd-button sd-button-icon sd-mode-button"
           data-mode={auto ? 'following' : 'pinned'}
-          title={auto ? t('header.following') : t('header.pinned')}
+          data-tip={auto ? t('header.following') : t('header.pinned')}
           aria-label={auto ? t('header.following') : t('header.pinned')}
           aria-pressed={!auto}
           onClick={toggleAuto}
@@ -897,7 +897,7 @@ export function SemanticPanel(props: PanelProps) {
             className="sd-button sd-button-icon"
             onClick={() => void scanPath(effectivePath ?? '')}
             disabled={busy !== null || effectivePath === undefined}
-            title={busy === 'scan' ? t('scan.scanning') : t('action.rescan')}
+            data-tip={busy === 'scan' ? t('scan.scanning') : t('action.rescan')}
             aria-label={busy === 'scan' ? t('scan.scanning') : t('action.rescan')}
           >
             <span className={busy === 'scan' ? 'sd-spin' : undefined} style={{ display: 'inline-flex' }}>
@@ -912,7 +912,7 @@ export function SemanticPanel(props: PanelProps) {
               setView({ kind: 'edit', concept: undefined })
             }}
             disabled={busy !== null || invalid || effectivePath === undefined}
-            title={t('action.new')}
+            data-tip={t('action.new')}
             aria-label={t('action.new')}
           >
             <PlusIcon />
@@ -925,15 +925,15 @@ export function SemanticPanel(props: PanelProps) {
               setEditorIssues([])
             }}
             disabled={busy !== null || effectivePath === undefined}
-            title={view.kind === 'raw' ? t('action.done') : t('action.yaml')}
+            data-tip={view.kind === 'raw' ? t('action.done') : t('action.yaml')}
             aria-label={view.kind === 'raw' ? t('action.done') : t('action.yaml')}
           >
             <CodeIcon />
           </button>
           <button
             type="button"
-            className="sd-button sd-button-ghost sd-button-icon"
-            title={t('settings.title')}
+            className="sd-button sd-button-icon"
+            data-tip={t('settings.title')}
             aria-label={t('settings.title')}
             onClick={() => setSettingsOpen(true)}
           >

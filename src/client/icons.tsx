@@ -99,12 +99,13 @@ export function CloseIcon({ size = 12 }: IconProps) {
   )
 }
 
-/** Pushpin: the panel stays on the workspace you picked. */
+/** Pushpin: the panel stays on the workspace you picked. Three strokes, no detail. */
 export function PinIcon({ size = 14 }: IconProps) {
   return (
     <svg {...base(size)}>
-      <path d="M9.6 2.6 13.4 6.4M8.4 3.8 12.2 7.6M6.2 5.2l4.6 4.6-2 2-4.6-4.6zM6.2 12.4 2.8 15.8" />
-      <path d="M9.2 8.2 6.4 11" />
+      <path d="M6.2 3.2h3.6" />
+      <path d="M7 3.2v3.2L5.4 8.4h5.2L9 6.4V3.2" />
+      <path d="M8 8.4v4.8" />
     </svg>
   )
 }

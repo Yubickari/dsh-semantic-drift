@@ -89,14 +89,38 @@ export const PANEL_CSS = `
 }
 .sd-button-primary:hover:not(:disabled) { background: var(--dsw-alias-brand-primary); filter: brightness(1.08); }
 .sd-button-ghost { background: transparent; border-color: transparent; color: var(--dsw-alias-label-secondary); }
-.sd-button-icon { width: 28px; padding: 0; justify-content: center; }
+.sd-button-icon { position: relative; width: 28px; padding: 0; justify-content: center; }
+/* A native title tooltip waits a second and sometimes never shows; this one is
+   immediate, styled, and shares the label the screen reader already gets. */
+.sd-button-icon[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-overlay);
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .18);
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity .1s ease .12s, transform .1s ease .12s;
+  pointer-events: none;
+  z-index: 30;
+}
+.sd-button-icon[data-tip]:hover::after,
+.sd-button-icon[data-tip]:focus-visible::after { opacity: 1; transform: translateY(0); }
+.sd-button-icon:disabled[data-tip]::after { display: none; }
 .sd-spin { animation: sd-spin 1s linear infinite; }
 @keyframes sd-spin { to { transform: rotate(360deg); } }
 .sd-button-danger { color: var(--dsw-alias-state-error-primary); }
 .sd-button-danger:hover:not(:disabled) { border-color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); }
 .sd-mode-button[data-mode='pinned'] { color: var(--dsw-alias-brand-primary); }
-.sd-mode-button[data-mode='following'] { color: var(--dsw-alias-label-secondary); }
-.sd-mode-button[data-mode='pinned']:hover:not(:disabled) { border-color: var(--dsw-alias-brand-primary); }
 .sd-switch {
   display: inline-flex;
   align-items: center;

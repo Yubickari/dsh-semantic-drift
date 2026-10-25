@@ -137,8 +137,9 @@ list.
 
 ### Panel settings
 
-The toolbar is icon-only — scan, new concept, raw YAML and settings — and each
-icon describes itself on hover and to a screen reader. The sidebar entry is
+The toolbar is icon-only — scan, new concept, raw YAML and settings — all with the
+same bordered button, and each icon describes itself immediately on hover (a
+styled tooltip, not the browser's delayed `title`) and to a screen reader. The sidebar entry is
 **Vocabulary** (语义词表), the same name as the panel title.
 
 Re-opening the panel returns to the page it was left on: the selected concept (or
