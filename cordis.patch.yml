@@ -1,0 +1,9 @@
+# dsh-semantic-drift bundle patch.
+#
+# One row mounts both halves of the plugin: the host half (`exports["."]`) runs in
+# the DSH host process and owns the vocabulary store, the scanner, the five agent
+# tools and the `/semantic-drift/*` routes; the `dsh.client` declaration in
+# package.json makes the browser half (`exports["./client"]`) load in the Web GUI.
+- insert:
+    - id: semantic-drift
+      name: 'dsh-semantic-drift'

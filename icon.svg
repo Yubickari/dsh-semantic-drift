@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="dsh-semantic-drift">
+  <rect x="4" y="8" width="56" height="48" rx="11" fill="#0f172a"/>
+  <rect x="4" y="8" width="56" height="48" rx="11" fill="none" stroke="#38bdf8" stroke-opacity="0.5" stroke-width="2"/>
+  <path d="M15 21h16M15 30h11M15 39h18" stroke="#93c5fd" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M35 21h14M35 30h9M35 39h13" stroke="#38bdf8" stroke-width="3.2" stroke-linecap="round" stroke-dasharray="1 6"/>
+  <circle cx="49" cy="30" r="4.2" fill="#fbbf24"/>
+  <path d="M46.5 30h5" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+</svg>

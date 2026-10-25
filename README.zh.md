@@ -1,0 +1,175 @@
+# dsh-semantic-drift · 语义漂移
+
+一份可版本化的词表、一个只读扫描器、一个面板：找出同一个业务概念在代码里被写成几种样子，并把"哪种写法才算数"固定下来。
+
+DeepSeek Harness（DSH）Web GUI 插件。对任何仓库可用，不需要构建系统、语言服务器或数据库。
+
+```
+侧边栏「语义」 →  左侧概念树，右侧单个概念与它的漂移
+
+  concept                          |
+  device.target_temperature        |  target_temp            warning   高
+  canonical  TargetTemp : °C       |  src/Device/Panel.cs:42  命名变体
+  terms      目标温度 / 设定温度      |
+  ───────────────────────────      |  NetworkStatus          warning   高
+  drift (2)                        |  src/Debug/Enumus/…:11   重复定义
+```
+
+## 它解决什么问题
+
+同一个业务概念会在每一层被重新翻译一次——数据库列、DTO、客户端字段、协议枚举、界面文案——然后各自走形。系统里没有任何地方记录"这几个标识符本来说的是同一件事"，于是也没有任何地方能检查它们。
+
+插件只增加一件东西：
+
+```
+.dsh/semantics.yaml   ——  概念、规范写法、术语
+```
+
+以及三种使用方式：
+
+| | |
+|---|---|
+| **立词表** | 一份 YAML，记录 `概念 → 规范符号` |
+| **找漂移** | 只读扫描，指出代码与词表不一致的位置 |
+| **裁决收敛** | 面板与五个 Agent 工具：接受、编辑、或把发现提升为概念 |
+
+## 安装
+
+```bash
+# 从 GitHub（当前为私有仓库，需要授权）
+dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift
+
+# 或从本地目录
+dsh plugin --profile desktop add link:/path/to/dsh-semantic-drift
+```
+
+在 Web GUI 里也可以在「设置 → 插件 → 从源安装」填入同样的 spec。安装后刷新一次页面让浏览器半边加载，侧边栏会出现「语义」。
+
+`lib/` 已随仓库提交，从 git 安装不需要构建。npm 包名 `dsh-semantic-drift` 未被占用，但不是安装的前提。
+
+## 快速开始
+
+1. 在某个工作区打开「语义」面板。
+2. 点「创建词表」——写入 `.dsh/semantics.yaml`（含默认排除项，暂无概念）。
+3. 点「重新扫描」。**还没有任何概念时也已经有发现**：结构性检测器不需要词表就能指出"同名类型被定义了两遍"，这是冷启动阶段的价值。
+4. 用「新建概念」（或 `semantic_upsert` 工具）登记概念，再扫描一次。依赖词表的检测器这才有比较基准。
+5. 对打算保留的写法点「接受」，并写下理由。例外会写进词表，下次扫描不再报告，后来的人也能看到当初为什么这么定。
+
+## 词表文件
+
+```yaml
+version: 1
+meta:
+  project: demo
+  updated: 2026-10-25
+exclude: ["**/node_modules/**", "**/bin/**", "**/obj/**"]
+concepts:
+  - id: device.target_temperature      # group.name，全局唯一
+    terms: ["目标温度", "设定温度"]        # 人怎么称呼它
+    kind: quantity                     # entity | quantity | enum | status | reference
+    canonical:
+      symbol: TargetTemperature        # 代码里必须这么写
+      type: double
+      unit: "°C"
+    note: 设备被要求达到的温度。
+    accepted:                          # 已经裁决过的例外，必须带理由
+      - symbol: TargetTemp
+        path: src/Legacy/**            # glob；省略表示该符号全局接受
+        reason: 公开字段保留一个版本
+```
+
+写入前一定先校验；校验不通过就**不会写入**，并且给出 YAML 行号或文档路径：
+
+* `id` 唯一且形如 `group.name`；
+* `canonical.symbol` 是合法标识符，且全局唯一；
+* `terms` 非空，且不能被两个概念共用；
+* 每条 `accepted` 必须有 `reason`；
+* 每个 glob 必须能解析；
+* YAML 语法错误给出行列号，文件保持原样。
+
+保存是规范化的、幂等的：同一份文档存两次得到同样的字节。用原文编辑器手改时保留你自己的格式。
+
+## 检测器
+
+| 检测器 | 置信度 | 信号 |
+|---|---|---|
+| `duplicate-type` | 高 | 同一类型名在两个编译单元里定义，成员完全一致 |
+| `contract-drift` | 高 | 同名类型在两个单元里定义，成员不一致（两侧契约已经分叉） |
+| `symbol-variant` | 中 | `canonical.symbol` 的拼写变体：大小写/分隔符差异、已知错拼、或声明名编辑距离 ≤ 2 |
+| `term-unmapped` | 低 | 术语出现在注释或资源里，但规范符号从未在代码中出现 |
+
+两条二次过滤避免刷屏：变体必须在同一文件里还提到该概念的某个术语，或与规范符号共享首个词元；"契约漂移"的两份声明必须至少共享一个成员，所以两个碰巧都叫 `MainWindow` 的无关类不会被报出来。
+
+刻意排除（比较它们只会产生噪声）：入口类（`Program`/`Startup` 且带 `Main`）、`partial` 声明（单个文件永远看不全成员表）、生成文件（`*.Designer.cs`、`*.g.cs`、`auto-generated` 头）、以及成员少于两个的声明。
+
+语言覆盖：结构性检测支持 C#（`class`/`struct`/`interface`/`record`/`enum`）、TypeScript（`interface`/`type`/`enum`/`class`）、Python（`class`）；其它白名单扩展名仍会为 `term-unmapped` 提供注释/字符串证据。
+
+## Agent 工具
+
+五个工具，任何会话可用，与面板共用同一套校验：
+
+| 工具 | 用途 |
+|---|---|
+| `semantic_list` | 列出概念；`hasDrift` 会跑一次扫描并只保留有发现的概念 |
+| `semantic_get` | 按 id 或符号读一个概念与它的已接受例外；`includeDrift` 追加扫描 |
+| `semantic_upsert` | 新建或更新概念（`merge` 保留未提供的字段，`replace` 重建） |
+| `drift_scan` | 结构化发现，带检测器名、置信度与引用 |
+| `semantic_accept` | 记录例外，`reason` 必填 |
+
+拒绝一律是返回值（`{ ok: false, code, message }`），不抛异常；`drift_scan` 在描述里明确写了只读。开着 `announceToAgent` 时，概念列表与"改字段前先查词表"这条硬约束会作为一节注入提示（最多 200 行，超过 120 个概念时折叠为计数）。
+
+## 配置
+
+| 字段 | 默认 | 含义 |
+|---|---|---|
+| `vocabularyPath` | `.dsh/semantics.yaml` | 词表路径，相对工作区根 |
+| `announceToAgent` | `true` | 是否把词表注入提示 |
+| `citationStyle` | `file+symbol` | `path/File.cs::Symbol` 或 `path/File.cs:123` |
+| `minConfidence` | `medium` | **工具**报告的最低置信度；面板始终拿到全部并按屏幕开关过滤 |
+| `timeoutMs` | `30000` | 单次扫描的时间预算 |
+| `maxFindings` | `5000` | 单次扫描上限 |
+| `maxFileBytes` | `1048576` | 超过则跳过并计数 |
+| `maxFiles` | `50000` | 单次扫描访问文件上限 |
+| `detectors` | 全部四项 | 本次扫描启用哪些检测器 |
+
+设置表单由 DSH 依据该 schema 自动渲染，没有手写配置界面。修改设置会重载插件行。
+
+## 保证
+
+* **扫描永不写盘。** 只以读方式打开文件；词表是插件唯一会写的文件。
+* **单一写路径。** 面板与工具都经过 store：按文件串行、先校验后写、原子替换。
+* **无 daemon、无文件监听、无索引。** 没有后台进程、没有 watcher、没有缓存目录；扫描是你要的时候现算。
+* **有界。** 超时与结果上限总会结束一次扫描，结果里写明是哪一个触发的。
+* **限定工作区。** 请求只能读写已注册的 DSH 工作区（或 Host 默认目录），其它路径一律拒绝。
+
+真实 1700 文件 C# 仓库上的典型开销：**约 1.2 秒**、读取约 18 MB、不改动任何文件。
+
+## 限制，以及它会在哪里出错
+
+这是词法级工具：它懂标识符、成员名和注释文本，不懂语义。
+
+* **名字不是契约。** 同名类型可能毫无关系；共享成员过滤能去掉大部分，但不是全部。
+* **成员表是正则解析的**，不是编译器。非常规声明会被跳过并计数，而不是猜。生成的代码整体跳过。
+* **编辑距离很粗。** 只在长度 ≥ 6 的声明类型名上运行，并且还需要共享首词元或同文件出现术语。会有少量"这算同一个概念吗"的中置信度发现——`accepted` 就是为这些准备的。
+* **`term-unmapped` 是启发式**（低置信度，默认折叠）：注释里有术语，并不证明代码里该有那个符号。
+* **未实现单位检查。** `canonical.unit` 会存储与显示，但 D5（量纲漂移）不在本版本内。
+* **跨词元的改名抓不到**：规范写法与观察写法差两次以上编辑时（`SetTemp` vs `TargetTemperature`）不会被当作拼写变体——那是"另一个名字"，需要靠词表里的术语与 `term-unmapped` 记录。
+* **面板不能打开文件**，只按配置格式复制引用。也**没有自动修复**：只读扫描之所以能被信任，正因为它从不碰你的代码。
+
+## 与 SchemaNode 的关系
+
+设计借用了 [kurapica/schema-node-csharp](https://github.com/kurapica/schema-node-csharp) 的三个判断：语义应当是可版本化的独立实体；有限可枚举的词汇表比无限类型系统更可维护；漂移必须可观测、可裁决，而不是靠人记。**不借实现**——没有 Meta/Property/Relation/Function 建模，没有语义编译，没有代码生成。就是一份 YAML 加一个扫描器。
+
+## 开发
+
+```bash
+pnpm install
+pnpm test          # node --test，34 个用例，无测试框架依赖
+pnpm build         # esbuild → lib/index.js（host）+ lib/client.js（浏览器）
+```
+
+`src/` 是源码，`lib/` 是构建产物并随仓库提交，因此从 git 安装无需构建。浏览器半边按 DSH 的 `window.__ModuleLoader__.load({ id, factory })` 契约封装，React 保持 external；host 半边只导入 `yaml` 与 `@deepseek-ai/schemastery`。
+
+## 许可
+
+MIT

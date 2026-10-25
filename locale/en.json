@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Semantic Drift",
+    "description": "Keeps one versioned vocabulary of project concepts and shows where code, comments and types spell the same concept several ways. Read-only scan; edits go to a single YAML file."
+  }
+}
