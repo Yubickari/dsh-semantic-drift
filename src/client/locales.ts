@@ -10,8 +10,8 @@
  */
 
 const zh = {
-  'entry.label': '语义词表',
-  'panel.title': '语义词表',
+  'entry.label': '语义漂移词表',
+  'panel.title': '语义漂移词表',
   'panel.subtitle': '同一概念在代码里的不同写法',
   'action.rescan': '重新扫描',
   'action.new': '新建概念',
@@ -217,8 +217,8 @@ const zh = {
 }
 
 const en: Record<keyof typeof zh, string> = {
-  'entry.label': 'Vocabulary',
-  'panel.title': 'Vocabulary',
+  'entry.label': 'Semantic Drift Vocabulary',
+  'panel.title': 'Semantic Drift Vocabulary',
   'panel.subtitle': 'One concept, several spellings',
   'action.rescan': 'Scan',
   'action.new': 'New concept',
@@ -324,7 +324,7 @@ const en: Record<keyof typeof zh, string> = {
   'settings.title': 'Settings',
   'settings.local': 'This browser',
   'settings.project': 'This project (read-only)',
-  'settings.projectHint': 'These are the plugin row settings; edit them under Settings → Plugins → Semantic Drift.',
+  'settings.projectHint': 'These are the plugin row settings; edit them under Settings → Plugins → Semantic Drift Vocabulary.',
   'settings.auto': 'Follow the workspace',
   'settings.autoHint': 'On: follow the current DSH workspace and switch the vocabulary with it (no scan). Off: stay on the workspace you last picked.',
   'header.following': 'Following the session workspace · click to pin',

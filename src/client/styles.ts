@@ -85,7 +85,11 @@ export const PANEL_CSS = `
 .sd-button-primary {
   background: var(--dsw-alias-brand-primary);
   border-color: transparent;
-  color: #fff;
+  /* The on-brand text colour has to follow the theme: a hard-coded white is
+     invisible wherever the brand accent is light (the dark theme). The base
+     background is by definition the colour the page uses behind everything, so
+     it contrasts with the accent in both themes. */
+  color: var(--dsw-alias-bg-base);
 }
 .sd-button-primary:hover:not(:disabled) { background: var(--dsw-alias-brand-primary); filter: brightness(1.08); }
 .sd-button-ghost { background: transparent; border-color: transparent; color: var(--dsw-alias-label-secondary); }

@@ -140,7 +140,7 @@ list.
 The toolbar is icon-only — scan, new concept, raw YAML and settings — all with the
 same bordered button, and each icon describes itself immediately on hover (a
 styled tooltip, not the browser's delayed `title`) and to a screen reader. The sidebar entry is
-**Vocabulary** (语义词表), the same name as the panel title.
+**Semantic Drift Vocabulary**, the same name as the panel title.
 
 Re-opening the panel returns to the page it was left on: the selected concept (or
 the unclassified list) is remembered per workspace, in the browser, and restored
@@ -162,7 +162,7 @@ The gear at the top right opens the panel's own settings:
 - **This project (read-only)** — the effective plugin settings (vocabulary path,
   prompt injection, citation style, tool confidence floor, scan budgets,
   detectors). They belong to the plugin row, so they are edited under
-  **Settings → Plugins → Semantic Drift**, and shown here so one page answers
+  **Settings → Plugins → Semantic Drift Vocabulary**, and shown here so one page answers
   "what is this panel actually doing".
 
 Every item shown here is a per-browser preference: it never enters
