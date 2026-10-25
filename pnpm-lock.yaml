@@ -12,7 +12,7 @@ importers:
         specifier: '>=0.2.1-rc.3'
         version: 0.2.1-rc.3(2e1b7622fea64c05bd6b156ab89b08df)
       '@deepseek-ai/schemastery':
-        specifier: ^3.18.5
+        specifier: ~3.18.5
         version: 3.18.5
       react:
         specifier: ^18.2.0

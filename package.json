@@ -1,7 +1,7 @@
 {
   "name": "dsh-semantic-drift",
-  "version": "0.1.0",
-  "description": "One versioned vocabulary file, one read-only scanner, one panel: see where the same concept is spelled several ways across a codebase.",
+  "version": "0.1.1",
+  "description": "One versioned vocabulary of a project's business concepts, a read-only drift scan, and the same naming rules in every agent prompt. A DSH plugin.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -14,7 +14,6 @@
   "icon": "icon.svg",
   "files": [
     "lib",
-    "src",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -40,7 +39,7 @@
     "react": "^18.2.0"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.5",
+    "@deepseek-ai/schemastery": "~3.18.5",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
@@ -55,7 +54,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "tsc --noEmit && node --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build && pnpm test"
   },
   "keywords": [
     "dsh",
@@ -67,5 +67,14 @@
   "license": "MIT",
   "engines": {
     "node": ">=22.6.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yubickari/dsh-semantic-drift.git"
+  },
+  "homepage": "https://github.com/Yubickari/dsh-semantic-drift#readme",
+  "bugs": {
+    "url": "https://github.com/Yubickari/dsh-semantic-drift/issues"
+  },
+  "author": "Yubickari"
 }

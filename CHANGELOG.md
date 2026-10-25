@@ -1,0 +1,24 @@
+# Changelog
+
+## 0.1.1
+
+First public release.
+
+- One versioned vocabulary per workspace (`.dsh/semantics.yaml`), validated before
+  every write and written atomically.
+- Four detectors, ten rules: duplicated types (copy / parameterized derivative /
+  divergent values), contract drift that ignores inheritance and nested helpers,
+  spelling variants including a canonical spelling the code never uses, and unmapped
+  terms.
+- Accepted exceptions as records: reason + minimal scope, editable, rewordable,
+  removable, undoable, each reporting how many findings it mutes right now.
+- Five agent tools and one prompt section, with a panel switch to turn the injection
+  off and stop its recurring token cost.
+- Panel: concept tree and detail, drift list, raw YAML editor, unclassified findings,
+  scan memory with a dated report, remembered page, workspace following or pinning.
+- Read-only scan, no daemon, no index; parsed files reused between runs; workspace
+  scoped; a write must name its workspace.
+
+## 0.1.0
+
+Development builds. Same feature set before the first public release; no public tag.
