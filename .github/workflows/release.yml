@@ -43,19 +43,42 @@ jobs:
       - run: pnpm build
       - name: The committed bundle matches the source
         run: git diff --exit-code -- lib
-      # No token: the publish authenticates with GitHub's OIDC identity, which the
-      # package must be told to trust first — npmjs → the package → Settings →
-      # Trusted publishing → GitHub Actions, repository `Yubickari/dsh-semantic-drift`,
-      # workflow `release.yml`. Provenance is produced by the same exchange.
-      - name: Publish to npm
+      # Prefer OIDC (no secret to rotate); the OIDC exchange was denied by npm once
+      # ("OIDC permission denied for this action"), most likely a trusted-publisher
+      # entry that does not allow `npm publish`. A configured NPM_TOKEN therefore
+      # takes over, and the run says which path it used. Both paths publish
+      # provenance, because `id-token: write` is granted either way.
+      - name: Does this version need publishing?
+        id: check
         run: |
-          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           if npm view "dsh-semantic-drift@${version}" version >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "::notice::dsh-semantic-drift@${version} is already on npm; nothing to publish"
-            exit 0
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
-          npm publish --provenance --access public
+      - name: Which credential can publish?
+        id: auth
+        if: steps.check.outputs.publish == 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NPM_TOKEN}" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+            echo "::notice::publishing with the NPM_TOKEN secret"
+          else
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+            echo "::notice::no NPM_TOKEN secret; publishing through OIDC trusted publishing"
+          fi
+      - name: Publish to npm (token)
+        if: steps.check.outputs.publish == 'true' && steps.auth.outputs.mode == 'token'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (OIDC)
+        if: steps.check.outputs.publish == 'true' && steps.auth.outputs.mode == 'oidc'
+        run: npm publish --provenance --access public
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:
