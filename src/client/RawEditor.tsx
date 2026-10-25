@@ -10,6 +10,7 @@
 
 import { useState } from 'react'
 import type { ValidationIssue } from '../protocol.ts'
+import { IssueList } from './IssueList.tsx'
 import { t } from './locales.ts'
 
 /** Props of the raw editor. */
@@ -37,18 +38,10 @@ export function RawEditor(props: RawEditorProps) {
         rows={18}
       />
       {props.issues.length > 0 && (
-        <div className="sd-issues">
+        <>
           <div className="sd-section-title" style={{ margin: 0 }}>{t('issue.title')}</div>
-          {props.issues.map((issue, index) => (
-            <div className="sd-issue" data-severity={issue.severity} key={`${issue.code}-${index}`}>
-              <div>{issue.message}</div>
-              <div className="sd-issue-where">
-                {issue.line === undefined ? '' : `line ${issue.line}${issue.column === undefined ? '' : `:${issue.column}`} · `}
-                {issue.path ?? ''}
-              </div>
-            </div>
-          ))}
-        </div>
+          <IssueList issues={props.issues} />
+        </>
       )}
       <div className="sd-form-actions">
         <button

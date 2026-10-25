@@ -10,7 +10,7 @@
 import { useState } from 'react'
 import type { Concept } from '../protocol.ts'
 import { t } from './locales.ts'
-import { CaretIcon, SearchIcon } from './icons.tsx'
+import { CaretIcon, PlusIcon, SearchIcon } from './icons.tsx'
 
 /** Props of the concept tree. */
 export interface ConceptTreeProps {
@@ -25,6 +25,8 @@ export interface ConceptTreeProps {
   showUnclassified: boolean
   onSelect: (id: string) => void
   onSelectUnclassified: () => void
+  /** Open the new-concept editor; a group pre-fills the id prefix. */
+  onAdd: (group?: string) => void
 }
 
 interface Group {
@@ -55,6 +57,19 @@ export function ConceptTree(props: ConceptTreeProps) {
 
   return (
     <aside className="sd-tree">
+      <div className="sd-tree-head">
+        <span className="sd-tree-title">{t('tree.title')}</span>
+        <span className="sd-count">{props.concepts.length}</span>
+        <button
+          type="button"
+          className="sd-add"
+          title={t('action.new')}
+          aria-label={t('action.new')}
+          onClick={() => props.onAdd()}
+        >
+          <PlusIcon size={15} />
+        </button>
+      </div>
       <div className="sd-tree-tools">
         <div className="sd-search">
           <span className="sd-search-icon">
@@ -93,13 +108,24 @@ export function ConceptTree(props: ConceptTreeProps) {
           const open = collapsed[group.name] !== true
           return (
             <div className="sd-group" key={group.name}>
-              <button type="button" className="sd-group-head" onClick={() => toggle(group.name)}>
-                <span className="sd-caret" data-open={open}>
-                  <CaretIcon />
-                </span>
-                {group.name}
-                <span className="sd-count">{group.concepts.length}</span>
-              </button>
+              <div className="sd-group-row">
+                <button type="button" className="sd-group-head" onClick={() => toggle(group.name)}>
+                  <span className="sd-caret" data-open={open}>
+                    <CaretIcon />
+                  </span>
+                  {group.name}
+                  <span className="sd-count">{group.concepts.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className="sd-add"
+                  title={t('tree.addInGroup')}
+                  aria-label={t('tree.addInGroup')}
+                  onClick={() => props.onAdd(group.name)}
+                >
+                  <PlusIcon size={13} />
+                </button>
+              </div>
               {open && group.concepts.map(concept => {
                 const drift = props.driftCounts.get(concept.id) ?? 0
                 return (

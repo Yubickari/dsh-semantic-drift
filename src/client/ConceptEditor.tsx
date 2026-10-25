@@ -12,12 +12,17 @@
 import { useState } from 'react'
 import { CONCEPT_KINDS } from '../protocol.ts'
 import type { Concept, ConceptKind, ValidationIssue } from '../protocol.ts'
+import { IssueList } from './IssueList.tsx'
 import { t } from './locales.ts'
 
 /** Props of the concept form. */
 export interface ConceptEditorProps {
   /** Existing concept to edit, or `undefined` for a new one. */
   concept: Concept | undefined
+  /** Pre-filled id for a new concept (the tree's group add uses `<group>.`). */
+  initialId?: string
+  /** Pre-filled canonical symbol for a new concept (a promoted finding uses it). */
+  initialSymbol?: string
   /** Issues from the last failed save. */
   issues: readonly ValidationIssue[]
   saving: boolean
@@ -26,10 +31,10 @@ export interface ConceptEditorProps {
 }
 
 export function ConceptEditor(props: ConceptEditorProps) {
-  const [id, setId] = useState(props.concept?.id ?? '')
+  const [id, setId] = useState(props.concept?.id ?? props.initialId ?? '')
   const [terms, setTerms] = useState((props.concept?.terms ?? []).join(', '))
   const [kind, setKind] = useState<ConceptKind>(props.concept?.kind ?? 'entity')
-  const [symbol, setSymbol] = useState(props.concept?.canonical.symbol ?? '')
+  const [symbol, setSymbol] = useState(props.concept?.canonical.symbol ?? props.initialSymbol ?? '')
   const [symbolType, setSymbolType] = useState(props.concept?.canonical.type ?? '')
   const [unit, setUnit] = useState(props.concept?.canonical.unit ?? '')
   const [note, setNote] = useState(props.concept?.note ?? '')
@@ -151,18 +156,10 @@ export function ConceptEditor(props: ConceptEditorProps) {
       </div>
 
       {props.issues.length > 0 && (
-        <div className="sd-issues">
+        <>
           <div className="sd-section-title" style={{ margin: 0 }}>{t('issue.title')}</div>
-          {props.issues.map((issue, index) => (
-            <div className="sd-issue" data-severity={issue.severity} key={`${issue.code}-${index}`}>
-              <div>{issue.message}</div>
-              <div className="sd-issue-where">
-                {issue.line === undefined ? '' : `line ${issue.line}${issue.column === undefined ? '' : `:${issue.column}`} · `}
-                {issue.path ?? ''}
-              </div>
-            </div>
-          ))}
-        </div>
+          <IssueList issues={props.issues} />
+        </>
       )}
 
       <div className="sd-form-actions">

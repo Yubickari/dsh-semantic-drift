@@ -14,12 +14,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Concept, DriftFinding, ScanResponse, StateResponse, ValidationIssue } from '../protocol.ts'
 import { acceptException, ApiError, fetchState, initVocabulary, runScan, saveDocument, saveRaw } from './api.ts'
 import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
+import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
+import { IssueList } from './IssueList.tsx'
 import { ConceptEditor } from './ConceptEditor.tsx'
 import { ConceptTree } from './ConceptTree.tsx'
 import { DriftList } from './DriftList.tsx'
 import { RawEditor } from './RawEditor.tsx'
-import { t } from './locales.ts'
-import { CodeIcon, PlusIcon, RefreshIcon } from './icons.tsx'
+import { maybeT, t } from './locales.ts'
+import type { MessageKey } from './locales.ts'
+import { CloseIcon, CodeIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { PANEL_CSS } from './styles.ts'
 
 /** Standard props the shell passes to a `main` entry. Both are optional so a
@@ -31,7 +34,10 @@ export interface PanelProps {
 
 type Selection = { kind: 'concept'; id: string } | { kind: 'unclassified' } | { kind: 'none' }
 
-type View = { kind: 'browse' } | { kind: 'edit'; concept: Concept | undefined } | { kind: 'raw' }
+type View =
+  | { kind: 'browse' }
+  | { kind: 'edit'; concept: Concept | undefined; initialId?: string; initialSymbol?: string }
+  | { kind: 'raw' }
 
 interface Notice {
   kind: 'success' | 'error'
@@ -44,8 +50,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function issuesOf(error: unknown): readonly ValidationIssue[] {
-  return error instanceof ApiError ? error.issues : []
+/** A notice line: the localized cause when the code is known, else the raw text. */
+function errorText(error: unknown, fallback: MessageKey): string {
+  const code = error instanceof ApiError ? error.code : undefined
+  const localized = code === undefined ? undefined : maybeT(`api.${code}`)
+  return localized === undefined ? `${t(fallback)}: ${messageOf(error)}` : `${t(fallback)}: ${localized}`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,6 +119,7 @@ export function SemanticPanel(props: PanelProps) {
   const [editorIssues, setEditorIssues] = useState<readonly ValidationIssue[]>([])
   const [acceptTarget, setAcceptTarget] = useState<DriftFinding | null>(null)
   const [acceptReason, setAcceptReason] = useState('')
+  const [acceptConceptId, setAcceptConceptId] = useState<string | undefined>(undefined)
 
   const effectivePath = state?.workspace.path
 
@@ -120,7 +130,7 @@ export function SemanticPanel(props: PanelProps) {
       setState(next)
       setNotice(current => (current?.kind === 'error' ? null : current))
     } catch (error) {
-      setNotice({ kind: 'error', text: `${t('state.loadFailed')}: ${messageOf(error)}`, issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: errorText(error, 'state.loadFailed'), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
@@ -131,7 +141,7 @@ export function SemanticPanel(props: PanelProps) {
     try {
       setScan(await runScan(path))
     } catch (error) {
-      setNotice({ kind: 'error', text: `${t('state.scanFailed')}: ${messageOf(error)}`, issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: errorText(error, 'state.scanFailed'), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
@@ -208,7 +218,7 @@ export function SemanticPanel(props: PanelProps) {
       setNotice({ kind: 'success', text: t('state.saved') })
       await scanPath(effectivePath)
     } catch (error) {
-      setNotice({ kind: 'error', text: `${t('state.saveFailed')}: ${messageOf(error)}`, issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: errorText(error, 'state.saveFailed'), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
@@ -234,7 +244,7 @@ export function SemanticPanel(props: PanelProps) {
       await scanPath(effectivePath)
     } catch (error) {
       setEditorIssues(issuesOf(error))
-      setNotice({ kind: 'error', text: `${t('state.saveFailed')}: ${messageOf(error)}`, issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: errorText(error, 'state.saveFailed'), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
@@ -252,15 +262,31 @@ export function SemanticPanel(props: PanelProps) {
       await scanPath(effectivePath)
     } catch (error) {
       setEditorIssues(issuesOf(error))
-      setNotice({ kind: 'error', text: `${t('state.saveFailed')}: ${messageOf(error)}`, issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: errorText(error, 'state.saveFailed'), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
   }, [effectivePath, scanPath])
 
+  const openAccept = useCallback((finding: DriftFinding) => {
+    setAcceptTarget(finding)
+    setAcceptReason('')
+    setAcceptConceptId(defaultAcceptConcept(finding, concepts))
+  }, [concepts])
+
+  const promote = useCallback((finding: DriftFinding) => {
+    setEditorIssues([])
+    setView({
+      kind: 'edit',
+      concept: undefined,
+      initialId: suggestConceptId(finding, concepts),
+      initialSymbol: finding.symbol,
+    })
+  }, [concepts])
+
   const confirmAccept = useCallback(async () => {
     if (effectivePath === undefined || acceptTarget === null) return
-    const conceptId = acceptTarget.conceptId
+    const conceptId = acceptTarget.conceptId ?? acceptConceptId
     if (conceptId === undefined) return
     if (acceptReason.trim() === '') return
     setBusy('accept')
@@ -275,14 +301,15 @@ export function SemanticPanel(props: PanelProps) {
       setState(current => (current === null ? current : { ...current, vocabulary: result.vocabulary }))
       setAcceptTarget(null)
       setAcceptReason('')
+      setAcceptConceptId(undefined)
       setNotice({ kind: 'success', text: t('state.accepted') })
       await scanPath(effectivePath)
     } catch (error) {
-      setNotice({ kind: 'error', text: `${t('state.acceptFailed')}: ${messageOf(error)}`, issues: issuesOf(error) })
+      setNotice({ kind: 'error', text: errorText(error, 'state.acceptFailed'), issues: issuesOf(error) })
     } finally {
       setBusy(null)
     }
-  }, [acceptReason, acceptTarget, effectivePath, scanPath])
+  }, [acceptConceptId, acceptReason, acceptTarget, effectivePath, scanPath])
 
   const issuesOfVocabulary = vocabulary?.issues ?? []
   const vocabularyHealth = severityOf(issuesOfVocabulary)
@@ -307,8 +334,10 @@ export function SemanticPanel(props: PanelProps) {
     if (view.kind === 'edit') {
       return (
         <ConceptEditor
-          key={`edit-${view.concept?.id ?? 'new'}`}
+          key={`edit-${view.concept?.id ?? view.initialId ?? 'new'}-${view.initialSymbol ?? ''}`}
           concept={view.concept}
+          initialId={view.initialId}
+          initialSymbol={view.initialSymbol}
           issues={editorIssues}
           saving={busy === 'save'}
           onSave={concept => void submitConcept(concept)}
@@ -358,11 +387,9 @@ export function SemanticPanel(props: PanelProps) {
           <div className="sd-hint" style={{ marginBottom: 12 }}>{t('detail.unclassifiedHint')}</div>
           <DriftList
             findings={unclassified}
-            onAccept={finding => {
-              setAcceptTarget(finding)
-              setAcceptReason('')
-            }}
+            onAccept={openAccept}
             onCopy={text => void copy(text)}
+            onPromote={promote}
             showLow
           />
         </div>
@@ -379,10 +406,7 @@ export function SemanticPanel(props: PanelProps) {
           setEditorIssues([])
           setView({ kind: 'edit', concept })
         }}
-        onAccept={finding => {
-          setAcceptTarget(finding)
-          setAcceptReason('')
-        }}
+        onAccept={openAccept}
         onCopy={text => void copy(text)}
       />
     )
@@ -472,29 +496,36 @@ export function SemanticPanel(props: PanelProps) {
             setSelection({ kind: 'unclassified' })
             setView({ kind: 'browse' })
           }}
+          onAdd={group => {
+            setEditorIssues([])
+            setView({
+              kind: 'edit',
+              concept: undefined,
+              ...(group === undefined ? {} : { initialId: `${group}.` }),
+            })
+          }}
         />
         <section className="sd-detail">
           {notice !== null && (
-            <div className="sd-notice" data-kind={notice.kind}>
-              <div className="sd-spread">
-                <span>{notice.text}</span>
-                <button type="button" className="sd-button sd-button-ghost" onClick={() => setNotice(null)}>
-                  {t('action.close')}
+            <div
+              className="sd-notice"
+              data-kind={notice.kind}
+              title={t('notice.dismissHint')}
+              onDoubleClick={() => setNotice(null)}
+            >
+              <div className="sd-notice-head">
+                <span className="sd-notice-text">{notice.text}</span>
+                <button
+                  type="button"
+                  className="sd-button sd-button-ghost sd-notice-close"
+                  title={`${t('action.close')} · ${t('notice.dismissHint')}`}
+                  aria-label={t('action.close')}
+                  onClick={() => setNotice(null)}
+                >
+                  <CloseIcon />
                 </button>
               </div>
-              {notice.issues !== undefined && notice.issues.length > 0 && (
-                <div className="sd-issues">
-                  {notice.issues.slice(0, 6).map((issue, index) => (
-                    <div className="sd-issue" data-severity={issue.severity} key={`${issue.code}-${index}`}>
-                      <div>{issue.message}</div>
-                      <div className="sd-issue-where">
-                        {issue.line === undefined ? '' : `line ${issue.line} · `}
-                        {issue.path ?? ''}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {notice.issues !== undefined && notice.issues.length > 0 && <IssueList issues={notice.issues} limit={6} />}
             </div>
           )}
           {invalid && view.kind !== 'raw' && (
@@ -513,20 +544,7 @@ export function SemanticPanel(props: PanelProps) {
                   {t('action.yaml')}
                 </button>
               </div>
-              <div className="sd-issues">
-                {issuesOfVocabulary
-                  .filter(issue => issue.severity === 'error')
-                  .slice(0, 8)
-                  .map((issue, index) => (
-                    <div className="sd-issue" key={`${issue.code}-${index}`}>
-                      <div>{issue.message}</div>
-                      <div className="sd-issue-where">
-                        {issue.line === undefined ? '' : `line ${issue.line}${issue.column === undefined ? '' : `:${issue.column}`} · `}
-                        {issue.path ?? ''}
-                      </div>
-                    </div>
-                  ))}
-              </div>
+              <IssueList issues={issuesOfVocabulary.filter(issue => issue.severity === 'error')} limit={8} />
             </div>
           )}
           {renderDetail()}
@@ -560,7 +578,7 @@ export function SemanticPanel(props: PanelProps) {
         </button>
       </footer>
 
-      {acceptTarget !== null && acceptTarget.conceptId !== undefined && (
+      {acceptTarget !== null && (
         <div
           style={{
             position: 'absolute',
@@ -589,8 +607,29 @@ export function SemanticPanel(props: PanelProps) {
           >
             <div className="sd-label">{t('editor.acceptedReason')}</div>
             <div className="sd-hint">
-              <span className="sd-code">{acceptTarget.symbol}</span> · {acceptTarget.path}
+              <span className="sd-code">{acceptTarget.symbol}</span> · {acceptTarget.path}:{acceptTarget.line}
             </div>
+            {acceptTarget.conceptId === undefined && (
+              concepts.length === 0
+                ? <div className="sd-hint">{t('unclassified.noConcept')}</div>
+                : (
+                    <div className="sd-field" style={{ gap: 5 }}>
+                      <span className="sd-hint">{t('unclassified.pickConcept')}</span>
+                      <select
+                        className="sd-select"
+                        style={{ maxWidth: 'none', width: '100%' }}
+                        value={acceptConceptId ?? ''}
+                        onChange={event => setAcceptConceptId(event.target.value)}
+                      >
+                        {concepts.map(concept => (
+                          <option key={concept.id} value={concept.id}>
+                            {concept.id} · {concept.canonical.symbol}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+            )}
             <input
               className="sd-input"
               autoFocus
@@ -602,14 +641,30 @@ export function SemanticPanel(props: PanelProps) {
               }}
             />
             <div className="sd-form-actions">
-              <button
-                type="button"
-                className="sd-button sd-button-primary"
-                onClick={() => void confirmAccept()}
-                disabled={busy === 'accept' || acceptReason.trim() === ''}
-              >
-                {t('action.accept')}
-              </button>
+              {concepts.length === 0 && acceptTarget.conceptId === undefined
+                ? (
+                    <button
+                      type="button"
+                      className="sd-button sd-button-primary"
+                      onClick={() => {
+                        const finding = acceptTarget
+                        setAcceptTarget(null)
+                        if (finding !== null) promote(finding)
+                      }}
+                    >
+                      {t('action.new')}
+                    </button>
+                  )
+                : (
+                    <button
+                      type="button"
+                      className="sd-button sd-button-primary"
+                      onClick={() => void confirmAccept()}
+                      disabled={busy === 'accept' || acceptReason.trim() === '' || (acceptTarget.conceptId ?? acceptConceptId) === undefined}
+                    >
+                      {t('action.accept')}
+                    </button>
+                  )}
               <button type="button" className="sd-button" onClick={() => setAcceptTarget(null)}>
                 {t('action.cancel')}
               </button>

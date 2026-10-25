@@ -91,6 +91,14 @@ export function CheckIcon({ size = 13 }: IconProps) {
   )
 }
 
+export function CloseIcon({ size = 12 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
+  )
+}
+
 export function EditIcon({ size = 13 }: IconProps) {
   return (
     <svg {...base(size)}>

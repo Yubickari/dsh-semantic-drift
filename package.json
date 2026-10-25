@@ -44,11 +44,12 @@
     "yaml": "^2.8.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "react-dom": "18.3.1"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\""
   },
   "keywords": [
     "dsh",

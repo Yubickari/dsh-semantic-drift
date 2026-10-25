@@ -31,6 +31,7 @@ Sidebar: Semantics
   - [What it solves](#what-it-solves)
   - [Install](#install)
   - [Quick start](#quick-start)
+    - [The unclassified list](#the-unclassified-list)
   - [The vocabulary file](#the-vocabulary-file)
   - [Detectors](#detectors)
   - [Agent tools](#agent-tools)
@@ -96,6 +97,18 @@ Publishing to npm is possible but not required; the unscoped name
 5. Accept a finding you intend to keep, with a **reason**. The exception is
    written into the vocabulary, so the next scan stays quiet about it and the
    next reader learns why.
+
+### The unclassified list
+
+The tree's **unclassified** row lists findings that no vocabulary concept owns.
+The structural detectors compare code with code, so they need no vocabulary at
+all: that list holds real findings before the first concept exists. A finding
+moves under a concept automatically only when that concept's `canonical.symbol`
+equals the type name; otherwise the decision is yours — accept it under a concept
+you pick in the dialog, or record it as a new concept, which pre-fills the
+suggested id and the canonical symbol. Adding terms alone does not reclassify
+anything, because terms drive the naming and term detectors, not the structural
+ones.
 
 ## The vocabulary file
 
@@ -255,7 +268,7 @@ compilation, no code generation. One YAML file and a scanner.
 
 ```bash
 pnpm install
-pnpm test          # node --test, 34 tests, no test framework
+pnpm test          # node --test, 48 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

@@ -11,7 +11,7 @@
 
 import type { DriftFinding } from '../protocol.ts'
 import { t, tf } from './locales.ts'
-import { CheckIcon, CopyIcon } from './icons.tsx'
+import { CheckIcon, CopyIcon, PlusIcon } from './icons.tsx'
 
 /** Props of the drift list. */
 export interface DriftListProps {
@@ -22,6 +22,8 @@ export interface DriftListProps {
   showLow: boolean
   /** Empty-state copy key. */
   emptyKey?: 'detail.noDrift' | 'detail.unclassifiedHint'
+  /** Shown when the caller can turn a finding into a new concept. */
+  onPromote?: (finding: DriftFinding) => void
 }
 
 function listOf(values: readonly string[] | undefined, limit = 8): string {
@@ -93,10 +95,22 @@ export function DriftList(props: DriftListProps) {
             >
               <CopyIcon />
             </button>
+            {props.onPromote !== undefined && (
+              <button
+                type="button"
+                className="sd-button sd-button-ghost"
+                title={t('action.promote')}
+                aria-label={t('action.promote')}
+                onClick={() => props.onPromote?.(finding)}
+              >
+                <PlusIcon />
+              </button>
+            )}
             <button
               type="button"
               className="sd-button sd-button-ghost"
               title={t('action.accept')}
+              aria-label={t('action.accept')}
               onClick={() => props.onAccept(finding)}
             >
               <CheckIcon />
