@@ -72,6 +72,16 @@ function workspaceDirectory(snapshot: unknown): string | undefined {
   return undefined
 }
 
+/** Call one shell selector hook defensively. */
+function readSnapshot(hook: PanelProps['useSessions']): unknown {
+  if (typeof hook !== 'function') return undefined
+  try {
+    return hook((snapshot: unknown) => snapshot)
+  } catch {
+    return undefined
+  }
+}
+
 function severityOf(issues: readonly ValidationIssue[]): 'error' | 'warning' | 'none' {
   if (issues.some(issue => issue.severity === 'error')) return 'error'
   return issues.length > 0 ? 'warning' : 'none'
@@ -80,11 +90,11 @@ function severityOf(issues: readonly ValidationIssue[]): 'error' | 'warning' | '
 export function SemanticPanel(props: PanelProps) {
   // The shell's selector hooks must run in a fixed order, so each is called from
   // the same place on every render; a shell that does not serve one yields
-  // undefined and the panel falls back to the Host's default workspace.
-  const useSessions = typeof props.useSessions === 'function' ? props.useSessions : undefined
-  const useWorkspaces = typeof props.useWorkspaces === 'function' ? props.useWorkspaces : undefined
-  const sessionsSnapshot = useSessions?.(snapshot => snapshot)
-  const workspacesSnapshot = useWorkspaces?.(snapshot => snapshot)
+  // undefined and the panel falls back to the Host's default workspace. A hook
+  // that throws is caught here rather than taking the whole panel down: the
+  // workspace selector in the header remains a reliable way to pick one.
+  const sessionsSnapshot = readSnapshot(props.useSessions)
+  const workspacesSnapshot = readSnapshot(props.useWorkspaces)
   const suggested = sessionDirectory(sessionsSnapshot) ?? workspaceDirectory(workspacesSnapshot)
 
   const [requested, setRequested] = useState<string | undefined>(undefined)
