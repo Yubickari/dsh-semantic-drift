@@ -89,6 +89,9 @@ export const PANEL_CSS = `
 }
 .sd-button-primary:hover:not(:disabled) { background: var(--dsw-alias-brand-primary); filter: brightness(1.08); }
 .sd-button-ghost { background: transparent; border-color: transparent; color: var(--dsw-alias-label-secondary); }
+.sd-button-icon { width: 28px; padding: 0; justify-content: center; }
+.sd-spin { animation: sd-spin 1s linear infinite; }
+@keyframes sd-spin { to { transform: rotate(360deg); } }
 .sd-button-danger { color: var(--dsw-alias-state-error-primary); }
 .sd-button-danger:hover:not(:disabled) { border-color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); }
 .sd-switch {

@@ -96,6 +96,10 @@ dsh plugin --profile desktop add link:/path/to/dsh-semantic-drift
 
 ### 面板设置
 
+顶部工具条是**纯图标**——重新扫描、新建概念、YAML 原文、设置——每颗图标在悬停时有说明，也带无障碍标签。左侧入口是**语义词表**，与面板标题一致。
+
+重新进入面板会回到上次停留的页面：选中的概念（或"未归类"列表）按工作区记在浏览器里，且只在该概念仍然存在时恢复。搜索词、筛选条件和未保存的编辑器**不会**恢复——那些描述的是当时的动作，而不是位置。
+
 右上角齿轮打开面板自己的设置：
 
 - **自动跟随工作区** —— 见上。
@@ -240,7 +244,7 @@ concepts:
 ```bash
 pnpm install
 pnpm typecheck     # 对浏览器半边做 tsc 检查：能抓住"改了名还在调用"的标识符
-pnpm test          # 类型检查 + node --test，91 个用例，无测试框架依赖
+pnpm test          # 类型检查 + node --test，95 个用例，无测试框架依赖
 pnpm build         # esbuild → lib/index.js（host）+ lib/client.js（浏览器）
 ```
 

@@ -10,7 +10,7 @@
  */
 
 const zh = {
-  'entry.label': '语义',
+  'entry.label': '语义词表',
   'panel.title': '语义词表',
   'panel.subtitle': '同一概念在代码里的不同写法',
   'action.rescan': '重新扫描',
@@ -217,7 +217,7 @@ const zh = {
 }
 
 const en: Record<keyof typeof zh, string> = {
-  'entry.label': 'Semantics',
+  'entry.label': 'Vocabulary',
   'panel.title': 'Vocabulary',
   'panel.subtitle': 'One concept, several spellings',
   'action.rescan': 'Scan',

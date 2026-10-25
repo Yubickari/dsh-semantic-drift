@@ -133,6 +133,15 @@ list.
 
 ### Panel settings
 
+The toolbar is icon-only — scan, new concept, raw YAML and settings — and each
+icon describes itself on hover and to a screen reader. The sidebar entry is
+**Vocabulary** (语义词表), the same name as the panel title.
+
+Re-opening the panel returns to the page it was left on: the selected concept (or
+the unclassified list) is remembered per workspace, in the browser, and restored
+only if that concept still exists. Search, filters and open editors are not
+remembered — those describe a momentary task, not a place.
+
 The gear at the top right opens the panel's own settings:
 
 - **Follow the workspace** — the switch described above.
@@ -364,7 +373,7 @@ compilation, no code generation. One YAML file and a scanner.
 ```bash
 pnpm install
 pnpm typecheck     # tsc over the browser half: catches undefined identifiers
-pnpm test          # typecheck + node --test, 91 tests, no test framework
+pnpm test          # typecheck + node --test, 95 tests, no test framework
 pnpm build         # esbuild → lib/index.js (host) + lib/client.js (browser)
 ```
 

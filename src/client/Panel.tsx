@@ -28,6 +28,7 @@ import { IssueList } from './IssueList.tsx'
 import { Notice } from './Notice.tsx'
 import { loadPreferences, savePreferences } from './preferences.ts'
 import { recallScan, rememberScan } from './scan-cache.ts'
+import { forgetSelection, recallSelection, rememberSelection } from './view-memory.ts'
 import { matchesGlob } from '../glob.ts'
 import { ScopeSelect, coveredBy, scopeFromPath, scopePathFor } from './ScopeSelect.tsx'
 import type { ScopeValue } from './ScopeSelect.tsx'
@@ -278,6 +279,8 @@ export function SemanticPanel(props: PanelProps) {
     setScan(null)
     setScanAt(null)
     setScanMtime(undefined)
+    // A concept of the previous workspace is not this workspace's concept.
+    setSelection({ kind: 'none' })
     if (!auto || !autoScan) return
     void scanPath(effectivePath)
   }, [auto, autoScan, effectivePath, scanPath])
@@ -296,6 +299,31 @@ export function SemanticPanel(props: PanelProps) {
     setScanAt(recalled.at)
     setScanMtime(recalled.mtimeMs)
   }, [effectivePath, scan, scanRetentionMinutes])
+
+  /**
+   * Re-opening the panel returns to the page it was left on. Only a selection
+   * that still exists is restored: a deleted concept must not leave an empty
+   * detail pane that looks like a bug.
+   */
+  useEffect(() => {
+    if (effectivePath === undefined) return
+    if (selection.kind !== 'none') return
+    const remembered = recallSelection(effectivePath)
+    if (remembered === undefined) return
+    if (remembered.kind === 'concept') {
+      const exists = state?.vocabulary.document.concepts.some(concept => concept.id === remembered.id)
+      if (exists !== true) return
+      setSelection({ kind: 'concept', id: remembered.id })
+      return
+    }
+    setSelection({ kind: 'unclassified' })
+  }, [effectivePath, selection.kind, state?.vocabulary.document.concepts])
+
+  useEffect(() => {
+    if (effectivePath === undefined) return
+    if (selection.kind === 'concept') rememberSelection(effectivePath, { kind: 'concept', id: selection.id })
+    else if (selection.kind === 'unclassified') rememberSelection(effectivePath, { kind: 'unclassified' })
+  }, [effectivePath, selection])
 
   const vocabulary = state?.vocabulary
   const concepts = vocabulary?.document.concepts ?? []
@@ -486,7 +514,10 @@ export function SemanticPanel(props: PanelProps) {
       }
       const result = await saveDocument(effectivePath, document)
       setState(current => (current === null ? current : { ...current, vocabulary: result.vocabulary }))
-      if (selection.kind === 'concept' && selection.id === deleteTarget.id) setSelection({ kind: 'none' })
+      if (selection.kind === 'concept' && selection.id === deleteTarget.id) {
+        setSelection({ kind: 'none' })
+        forgetSelection()
+      }
       setDeleteTarget(null)
       setNotice({ kind: 'success', text: t('state.saved') })
       await scanPath(effectivePath)
@@ -861,43 +892,45 @@ export function SemanticPanel(props: PanelProps) {
         <div className="sd-actions">
           <button
             type="button"
-            className="sd-button"
+            className="sd-button sd-button-icon"
             onClick={() => void scanPath(effectivePath ?? '')}
             disabled={busy !== null || effectivePath === undefined}
-            title={t('action.rescan')}
+            title={busy === 'scan' ? t('scan.scanning') : t('action.rescan')}
+            aria-label={busy === 'scan' ? t('scan.scanning') : t('action.rescan')}
           >
-            <RefreshIcon />
-            {busy === 'scan' ? t('scan.scanning') : t('action.rescan')}
+            <span className={busy === 'scan' ? 'sd-spin' : undefined} style={{ display: 'inline-flex' }}>
+              <RefreshIcon />
+            </span>
           </button>
           <button
             type="button"
-            className="sd-button"
+            className="sd-button sd-button-icon"
             onClick={() => {
               setEditorIssues([])
               setView({ kind: 'edit', concept: undefined })
             }}
             disabled={busy !== null || invalid || effectivePath === undefined}
             title={t('action.new')}
+            aria-label={t('action.new')}
           >
             <PlusIcon />
-            {t('action.new')}
           </button>
           <button
             type="button"
-            className="sd-button"
+            className="sd-button sd-button-icon"
             onClick={() => {
               setView(view.kind === 'raw' ? { kind: 'browse' } : { kind: 'raw' })
               setEditorIssues([])
             }}
             disabled={busy !== null || effectivePath === undefined}
-            title={t('action.yaml')}
+            title={view.kind === 'raw' ? t('action.done') : t('action.yaml')}
+            aria-label={view.kind === 'raw' ? t('action.done') : t('action.yaml')}
           >
             <CodeIcon />
-            {view.kind === 'raw' ? t('action.done') : t('action.yaml')}
           </button>
           <button
             type="button"
-            className="sd-button sd-button-ghost"
+            className="sd-button sd-button-ghost sd-button-icon"
             title={t('settings.title')}
             aria-label={t('settings.title')}
             onClick={() => setSettingsOpen(true)}

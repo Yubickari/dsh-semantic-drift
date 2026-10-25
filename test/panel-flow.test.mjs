@@ -128,6 +128,14 @@ function mountPanel(props = {}, options = {}) {
 function resetPrefs(value = null) {
   if (value === null) window.localStorage.removeItem('dsh-semantic-drift:prefs')
   else window.localStorage.setItem('dsh-semantic-drift:prefs', JSON.stringify(value))
+  window.localStorage.removeItem('dsh-semantic-drift:view')
+}
+
+/** Find a control by its accessible label; the toolbar is icon-only. */
+function byLabel(container, label) {
+  const element = container.querySelector(`[aria-label="${label}"]`)
+  assert.ok(element !== null, `missing control: ${label}`)
+  return element
 }
 
 async function scanNow(container) {
@@ -170,8 +178,7 @@ test('a duplicate canonical symbol shows up as a visible refusal', async () => {
   await flush()
   assert.match(container.textContent ?? '', /ModuleName/, 'the loaded concept must be on screen')
 
-  const newButton = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('新建概念'))
-  assert.ok(newButton !== undefined, 'the new-concept button must exist')
+  const newButton = byLabel(container, '新建概念')
   click(newButton)
   await flush()
 
@@ -233,7 +240,7 @@ test('a successful save dismisses the form and reports at the bottom', async () 
   try {
     const { container, root } = mountPanel()
     await flush()
-    const newButton = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('新建概念'))
+    const newButton = byLabel(container, '新建概念')
     click(newButton)
     await flush()
     type('#sd-id', 'archit.new_thing')
@@ -500,7 +507,7 @@ test('a success notice closes itself after the configured seconds', async () => 
   try {
     const { container, root } = mountPanel()
     await flush(8)
-    const newButton = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('新建概念'))
+    const newButton = byLabel(container, '新建概念')
     click(newButton)
     await flush()
     type('#sd-id', 'archit.auto_close')
@@ -893,6 +900,65 @@ test('retention 0 disables the memory entirely', async () => {
     })
     await flush(8)
     assert.match(container.textContent ?? '', /尚未扫描/, 'with retention 0 the panel must ask for a scan')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('the panel returns to the page it was left on', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return json(STATE)
+    return json(scanResponse())
+  }
+  try {
+    const first = mountPanel()
+    await flush(8)
+    const item = [...first.container.querySelectorAll('button')].find(button => button.textContent?.includes('module_name'))
+    assert.ok(item !== undefined)
+    click(item)
+    await flush(2)
+    assert.ok(first.container.querySelector('.sd-concept-id') !== null, 'the concept page must be open')
+    reactAct(() => first.root.unmount())
+
+    // A second mount is exactly what selecting another panel and coming back does.
+    const second = mountPanel()
+    await flush(8)
+    const detail = second.container.querySelector('.sd-concept-id')
+    assert.ok(detail !== null, 'the panel must reopen on the same concept page')
+    assert.equal(detail.textContent, 'device.module_name')
+    reactAct(() => second.root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('the toolbar is icon-only and describes each action for hover and screen readers', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async url => json(STATE)
+  try {
+    const { container, root } = mountPanel()
+    await flush(6)
+    const actions = [...container.querySelectorAll('.sd-actions button')]
+    assert.equal(actions.length, 4, 'scan, new concept, YAML and settings')
+    for (const button of actions) {
+      assert.equal((button.textContent ?? '').trim(), '', `button must be icon-only: ${button.outerHTML.slice(0, 80)}`)
+      const label = button.getAttribute('aria-label')
+      assert.ok(label !== null && label !== '', 'every icon button needs an accessible label')
+      assert.equal(button.getAttribute('title'), label, 'hover text matches the accessible label')
+    }
+    assert.deepEqual(
+      actions.map(button => button.getAttribute('aria-label')),
+      ['重新扫描', '新建概念', 'YAML', '设置'],
+    )
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
