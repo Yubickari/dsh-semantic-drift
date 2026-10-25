@@ -1,22 +1,44 @@
 # dsh-semantic-drift
 
+**English** · [Chinese](README.zh.md)
+
 One versioned vocabulary file, one read-only scanner, one panel: see where the
 same concept is spelled several ways across a codebase — and decide which
 spelling is the canonical one.
 
-A DSH plugin for the DeepSeek Harness Web GUI. It works on any repository; it does
-not need a build system, a language server, or a database.
+A DSH plugin for the DeepSeek Harness Web GUI. It works on any repository and
+needs no build system, language server or database.
 
 ```
-语义 (sidebar)  →  concepts on the left, one concept and its drift on the right
-
-  concept                          |
-  device.target_temperature        |  target_temp            warning   高
-  canonical  TargetTemp : °C       |  src/Device/Panel.cs:42  命名变体
-  terms      目标温度 / 设定温度      |
-  ───────────────────────────      |  NetworkStatus          warning   高
-  drift (2)                        |  src/Debug/Enumus/…:11   重复定义
+Sidebar: Semantics
+┌───────────────────────────────┬──────────────────────────────────────────────┐
+│ concept                       │ device.target_temperature                    │
+│  device                   2   │ canonical  TargetTemp : °C                   │
+│   target_temperature          │ terms      target temperature, set point     │
+│   device_state                │ ───────────────────────────────────────────  │
+│  network                  1   │ drift (2)                                    │
+│   NetworkStatus               │   target_temp        high   naming variant   │
+│ unclassified              1   │   src/Device/Panel.cs:42                     │
+│                               │   NetworkStatus      high   duplicate        │
+│                               │   src/Debug/Enums/Status.cs:11               │
+└───────────────────────────────┴──────────────────────────────────────────────┘
 ```
+
+## Contents
+
+- [What it solves](#what-it-solves)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [The vocabulary file](#the-vocabulary-file)
+- [Detectors](#detectors)
+- [Agent tools](#agent-tools)
+- [Configuration](#configuration)
+- [Guarantees](#guarantees)
+- [Limitations, and where it is wrong](#limitations-and-where-it-is-wrong)
+- [Relationship to SchemaNode](#relationship-to-schemanode)
+- [Development](#development)
+- [Chinese documentation](README.zh.md)
+- [License](#license)
 
 ## What it solves
 
@@ -41,7 +63,7 @@ and three ways to use it:
 
 ## Install
 
-DSH installs plugins from a profile. Add the bundle, then enable the row:
+DSH installs plugins through a profile. Add the bundle, then enable its row:
 
 ```bash
 # from GitHub (works today; the repository starts private)
@@ -51,26 +73,26 @@ dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift
 dsh plugin --profile desktop add link:/path/to/dsh-semantic-drift
 ```
 
-Inside the Web GUI, the same thing is available under **Settings → Plugins →
-Install from source** with the same spec. After installation, refresh the page
-once so the browser half loads, and pick **语义** in the sidebar.
+The Web GUI offers the same thing under **Settings → Plugins → Install from
+source** with the same spec. After installation, refresh the page once so the
+browser half loads, then pick **Semantics** in the sidebar.
 
-`lib/` is committed, so installation from a git source needs no build step.
-npm publishing is possible but not required; the package name
-`dsh-semantic-drift` is unscoped and free.
+`lib/` is committed, so installing from a git source needs no build step.
+Publishing to npm is possible but not required; the unscoped name
+`dsh-semantic-drift` is free.
 
 ## Quick start
 
-1. Open the **语义** panel in a workspace.
-2. Press **创建词表** — this writes `.dsh/semantics.yaml` with default exclusions
-   and no concepts.
-3. Press **重新扫描**. Before any concept exists you still get structural
-   findings ("the same type is defined twice"), which is the cold-start value:
-   the scan does not need your vocabulary to find duplicated contracts.
-4. Register a concept with **新建概念** (or the `semantic_upsert` tool) and scan
-   again. Vocabulary-dependent findings (naming variants, unmapped terms) now
-   have something to compare against.
-5. Accept a finding you intend to keep with a **reason**. The exception is
+1. Open the **Semantics** panel in a workspace.
+2. Press **Create vocabulary** — this writes `.dsh/semantics.yaml` with the
+   default exclusions and no concepts.
+3. Press **Scan**. Before any concept exists you still get structural findings
+   ("the same type is defined twice"), which is the cold-start value: the scan
+   does not need your vocabulary to find duplicated contracts.
+4. Register a concept with **New concept** (or the `semantic_upsert` tool) and
+   scan again. Vocabulary-dependent findings (naming variants, unmapped terms)
+   now have something to compare against.
+5. Accept a finding you intend to keep, with a **reason**. The exception is
    written into the vocabulary, so the next scan stays quiet about it and the
    next reader learns why.
 
@@ -84,7 +106,7 @@ meta:
 exclude: ["**/node_modules/**", "**/bin/**", "**/obj/**"]
 concepts:
   - id: device.target_temperature      # group.name, unique
-    terms: ["目标温度", "设定温度"]        # what humans call it
+    terms: ["target temperature", "set point"]   # what humans call it
     kind: quantity                     # entity | quantity | enum | status | reference
     canonical:
       symbol: TargetTemperature        # what the code must call it
@@ -96,6 +118,10 @@ concepts:
         path: src/Legacy/**            # a glob; omit to accept the symbol everywhere
         reason: public field kept for one release
 ```
+
+`terms` may be written in any language: the scanner matches them as plain text in
+comments, strings and resource files. The examples in this English file use
+English terms; the [Chinese README](README.zh.md) uses Chinese ones.
 
 Validation runs before every write; a document that fails is never written, and
 the reported issue carries the YAML line or the document path:
@@ -125,16 +151,15 @@ one of the concept's terms, or when both spellings share the same leading token;
 and a "contract drift" pair must share at least one member, so two unrelated
 classes that happen to be named `MainWindow` are not reported.
 
-Deliberate exclusions, because comparing them produces only noise:
-entry-point classes (`Program`/`Startup` with a `Main`), `partial` declarations
-(one file never shows the whole member list), generated files (`*.Designer.cs`,
-`*.g.cs`, `auto-generated` headers), and declarations with fewer than two
-members.
+Deliberate exclusions, because comparing them produces only noise: entry-point
+classes (`Program`/`Startup` with a `Main`), `partial` declarations (one file
+never shows the whole member list), generated files (`*.Designer.cs`, `*.g.cs`,
+`auto-generated` headers), and declarations with fewer than two members.
 
 Language coverage: C# (`class`/`struct`/`interface`/`record`/`enum`), TypeScript
-(`interface`/`type`/`enum`/`class`), Python (`class`) for structural detectors;
-every other whitelisted extension still contributes comment/string evidence for
-`term-unmapped`.
+(`interface`/`type`/`enum`/`class`), Python (`class`) for the structural
+detectors; every other whitelisted extension still contributes comment/string
+evidence for `term-unmapped`.
 
 ## Agent tools
 
@@ -208,10 +233,12 @@ meaning.
 * **Single-token variants are missed** when the canonical and the observed
   spelling differ by more than two edits (`SetTemp` vs `TargetTemperature`). That
   is a "different name", not a "misspelling"; the vocabulary-with-terms model is
-  how a project records that, and D3 reports the comment side.
+  how a project records that, and `term-unmapped` reports the comment side.
 * **The panel cannot open a file** in an editor; it copies a citation in the
   configured style instead. There is no auto-fix, by design: the scan is trusted
   only because it never touches your code.
+* **No screenshot yet.** The layout above is a sketch of the real panel; a
+  screenshot of live data will replace it once the first visual check is done.
 
 ## Relationship to SchemaNode
 
