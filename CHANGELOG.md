@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- Published through **OIDC trusted publishing**: the release workflow holds no npm
+  token and no secret to rotate, and the tarball carries a provenance statement
+  signed by GitHub Actions. No runtime change.
+- A trusted publisher entry that allows direct publishing (and dist-tags) is now
+  required for a release; the previous token fallback stays documented for rollback.
+
 ## 0.1.3
 
 - The GitHub release title is the tag (`v0.1.3`), not `vv0.1.3`: the workflow

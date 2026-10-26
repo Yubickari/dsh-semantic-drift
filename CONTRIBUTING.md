@@ -70,12 +70,15 @@ pnpm build     # esbuild -> lib/index.js (host) + lib/client.js (browser)
 
 ## Publishing credentials
 
-The release workflow prefers **Trusted Publishing**: GitHub's OIDC identity is
-exchanged for a short-lived npm credential, so there is no secret to rotate. When the
-exchange is denied by npm (`OIDC permission denied for this action`, usually a
-trusted-publisher entry that does not allow `npm publish`), a configured `NPM_TOKEN`
-publishes instead, and the run prints which path it took. Fixing the npm entry
-switches the workflow back to tokenless on its own.
+The release workflow uses **Trusted Publishing**: GitHub's OIDC identity is exchanged
+for a short-lived npm credential, so the repository holds no token and no secret to
+rotate. The package's trusted publisher must allow *publish directly* **and** *manage
+dist-tags*; a stage-publish-only entry is denied with `OIDC permission denied for this
+action` — that is a package setting, not a workflow bug.
+
+Rollback, if the exchange ever breaks: restore `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`
+on the publish step, drop `id-token: write` (npm prefers OIDC whenever the token is
+present) and add the token back as a package-scoped granular token with 2FA bypass.
 
 If trusted publishing is unavailable, the token fallback below still works. npm
 demands a one-time password for a publish unless the token is allowed to skip it,
