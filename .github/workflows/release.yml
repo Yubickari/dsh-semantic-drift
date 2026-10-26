@@ -55,7 +55,7 @@ jobs:
           fi
           npm publish --provenance --access public
       - name: GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           # `github.ref_name` is already `vX.Y.Z` for a tag push; prefixing it again
