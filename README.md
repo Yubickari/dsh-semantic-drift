@@ -131,9 +131,9 @@ dsh plugin --profile desktop add dsh-semantic-drift@0.2.0
 dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.2.0
 ```
 
-Restart DSH afterwards, then read the version in the panel footer or at
-`GET /semantic-drift/health`. An update never touches your vocabulary file or its
-accepted exceptions.
+Restart DSH afterwards, then read the version in the panel footer (`vX.Y.Z`) or at
+`GET /semantic-drift/health`; the settings dialog no longer repeats it. An update never
+touches your vocabulary file or its accepted exceptions.
 
 ## Getting started
 
@@ -281,11 +281,19 @@ The loop this is built for:
 - **Remembered page** — the panel returns to the concept (or unclassified list) it
   was on, only if that concept still exists.
 - **Unclassified** — findings no concept owns; they exist before the first concept.
-- **Settings** — follow-the-workspace, rescan-on-follow, scan retention, notice
-  duration, low-confidence findings, and the **prompt injection switch** (a plugin
-  setting, written through the Host). The rest are per-browser preferences.
+- **Settings** — four groups: workspace following (follow on or off, rescan on
+  follow), scanning and cache (how long a report is reused), display and notices
+  (low-confidence findings, notice duration), and agent prompts (the **prompt
+  injection switch**). Every change applies at once: the browser preferences go to
+  `localStorage`, the injection switch to the plugin row. There is no save button —
+  the dialog closes with the × in its title bar. Project-level settings are not here:
+  one line at the bottom of the dialog points at DSH's Configuration block for this
+  bundle (see [Configuration](#configuration)).
 
 ### Configuration
+
+The panel configures how it looks and behaves; the project configures what is scanned
+and which file is the vocabulary.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -299,8 +307,29 @@ The loop this is built for:
 | `maxFiles` | `50000` | hard cap on files visited |
 | `detectors` | all four | which detectors a scan runs |
 
-The settings form is generated from this schema by DSH. Changing a setting reloads
-the plugin row.
+Every field in this table is plugin-row configuration, and all of it except
+`announceToAgent` is edited in DSH: **Plugins → Installed Plugins →
+`dsh-semantic-drift`** (the bundle) → **Configuration**. The plugin registers that page
+into the `plugins.bundle.config` seat and brings the field table (from the
+`schemastery` schema), the labels and the controls; the form itself — the values and
+the writes — is DSH's own live config form, served by its `configForms` service under
+this plugin's profile entry id, `semantic-drift`. The plugin keeps no save channel of
+its own: the page posts nothing, `GET /semantic-drift/config` answers the field table
+alone, and the values never travel over HTTP.
+
+Every field here is **volatile**: the only kind DSH shows as editable, and the kind
+the Loader commits in place instead of unmounting the plugin row. A change is therefore
+in force from the next read — no save button, no reload, nothing to toggle off and on.
+
+`announceToAgent` is the exception: it belongs to the panel's agent-prompt group, so
+the Configuration block leaves it out. The panel writes it through the Host's config
+editor — `POST /semantic-drift/settings` carries that one field and refuses a `patch`
+— and because the field is volatile the prompt section stays registered and returns an
+empty text while the switch is off: one click is the whole gesture, and the next prompt
+assembly already reflects it.
+
+Everything else in the panel's settings dialog is a browser preference kept in
+`localStorage` — not in the vocabulary file, not in the plugin row.
 
 ## How it works
 
@@ -322,8 +351,8 @@ invalidates it.
 
 What you can do about it:
 
-- **Turn the injection off** in the panel settings: removes the section (~500–3,500
-  tokens) and keeps the tools.
+- **Turn the injection off** in the panel settings: one click, no reload, removes the
+  section (~500–3,500 tokens) and keeps the tools.
 - **Keep the vocabulary small**: it is a vocabulary of concepts, not a dictionary of
   every field.
 - **Disable the plugin row** to remove even the tool schemas.
@@ -347,7 +376,9 @@ What you can do about it:
   repository, a closed tab forgets it, the tools never read it, and the footer dates
   it.
 * **Diagnosable.** `GET /semantic-drift/health` reports what this activation mounted
-  and the effective settings.
+  (five tools, nine routes, one prompt section) and the effective settings;
+  `GET /semantic-drift/config` reports the field table the settings form is built from —
+  kinds, defaults, bounds, options — and no values: DSH's form holds those.
 
 ### Limits
 

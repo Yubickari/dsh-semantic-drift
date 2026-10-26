@@ -11,6 +11,8 @@
  */
 
 import { basename } from 'node:path'
+import { announceEnabled } from './config.ts'
+import type { Volatile } from './config.ts'
 import { DEFAULT_VOCABULARY_PATH, DETECTOR_IDS } from './protocol.ts'
 import type {
   AcceptedException,
@@ -40,7 +42,11 @@ import { WorkspaceError } from './workspace.ts'
 /** Live plugin settings the service reads on every call. */
 export interface SemanticConfig {
   vocabularyPath: string
-  announceToAgent: boolean
+  /**
+   * Volatile in the schema, so an edit is committed in place instead of
+   * reloading the row: this may be a live reference, read it as a value.
+   */
+  announceToAgent: Volatile<boolean>
   citationStyle: 'file+symbol' | 'file:line'
   minConfidence: Confidence
   timeoutMs: number
@@ -182,7 +188,7 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
       version: options.version,
       effective: {
         vocabularyPath: relativePath(),
-        announceToAgent: config.announceToAgent !== false,
+        announceToAgent: announceEnabled(config.announceToAgent),
         citationStyle: config.citationStyle,
         minConfidence: config.minConfidence,
         timeoutMs: config.timeoutMs,

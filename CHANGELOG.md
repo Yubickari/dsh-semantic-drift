@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.5
+
+- The panel's settings dialog was rebuilt around what actually belongs to the browser:
+  workspace following, scanning and cache, display and notices, in four groups, plus
+  the agent-prompt switch. Every change takes effect immediately and the **Save** /
+  **Done** buttons are gone — the dialog closes with the × in its title bar.
+- Project-level settings (vocabulary path, citation style, tool minimum confidence,
+  the three scan budgets, and the detector set) moved out of the panel to the bundle's
+  **Configuration** block under **Plugins → Installed Plugins →
+  `dsh-semantic-drift`**. The plugin registers that block into the
+  `plugins.bundle.config` seat and supplies the field table, the labels and the
+  controls; the form and the writes are DSH's own live config form, which addresses the
+  plugin by its profile entry id (`semantic-drift`) and needs no save channel from us.
+- Every configuration field is schemastery **volatile** now, so DSH shows it as
+  editable and commits an edit in place without unmounting the plugin row: a change is
+  in force from the next read, and there is nothing to save, reload or toggle.
+- `announceToAgent` stays in the panel, in its agent-prompt group, and the
+  Configuration block leaves it out when it renders. The switch keeps working the same
+  way — committed in place, the prompt section stays registered and returns an empty
+  text while it is off, so one click turns the injection on or off and the next prompt
+  assembly already reflects it. The previous behaviour reported a save and left the
+  switch where it was.
+- New read-only `GET /semantic-drift/config` route: the mounted surface is nine routes
+  now instead of eight. It answers the field table alone — names, kinds, descriptions,
+  defaults, bounds, options — and no values.
+- `POST /semantic-drift/settings` carries one field now, `announceToAgent`, the only
+  thing the panel writes; the retired `patch` member is refused with 400, so no caller
+  writes a field behind DSH's form.
+- The version is shown only in the panel footer (`vX.Y.Z`); the settings dialog no
+  longer repeats it.
+
 ## 0.1.4
 
 - Published through **OIDC trusted publishing**: the release workflow holds no npm

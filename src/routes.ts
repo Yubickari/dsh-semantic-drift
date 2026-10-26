@@ -16,11 +16,15 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { configFields } from './config.ts'
 import { API_PREFIX } from './protocol.ts'
 import type {
   ApiErrorCode,
   ApiFailure,
+  ConfigResponse,
   DetectorId,
+  SettingsEcho,
+  SettingsResponse,
   ValidationIssue,
   VocabularyDocument,
 } from './protocol.ts'
@@ -145,11 +149,11 @@ function writeWorkspace(value: unknown): string {
 /** Host callbacks a route needs beyond the service. */
 export interface SemanticRouteHooks {
   /**
-   * Persist a plugin-row config patch through the Host's config editor.
+   * Persist the prompt switch through the Host's config editor.
    * Absent when the Host exposes none, in which case the setting is refused
    * with a pointer to DSH's own plugin settings form.
    */
-  editConfig?(patch: Record<string, unknown>): Promise<void>
+  editConfig?(patch: { announceToAgent: boolean }): Promise<void>
 }
 
 export function makeSemanticRoutes(
@@ -265,6 +269,30 @@ export function makeSemanticRoutes(
     },
   }
 
+  const config: WebRoute = {
+    kind: 'exact',
+    path: `${API_PREFIX}/config`,
+    handler: (req, res) => {
+      try {
+        if (req.method !== 'GET') return writeJson(res, 405, failure('method-not-allowed', 'Use GET.'))
+        if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
+        const info = diagnostics()
+        // No values: every field is volatile, so DSH renders the editable form
+        // and holds what is in force; this route is the field table alone.
+        const body: ConfigResponse = {
+          ok: true,
+          version: typeof info.version === 'string' ? info.version : '',
+          // Derived from `Config.dict`, never listed by hand: a field added to
+          // the schema is described here without a second list to keep in step.
+          fields: configFields(),
+        }
+        writeJson(res, 200, body)
+      } catch (error) {
+        sendFailure(res, error)
+      }
+    },
+  }
+
   const settings: WebRoute = {
     kind: 'exact',
     path: `${API_PREFIX}/settings`,
@@ -273,23 +301,42 @@ export function makeSemanticRoutes(
         if (req.method !== 'POST') return writeJson(res, 405, failure('method-not-allowed', 'Use POST.'))
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const body = await readJson(req, 4 * 1_024)
-        const announce = body.announceToAgent
-        if (typeof announce !== 'boolean') {
+        // `patch` is retired, not ignored: every field is volatile now, so DSH
+        // renders the whole form and a write through this route would be a
+        // second, unchecked channel to the same settings.
+        if (body.patch !== undefined) {
+          throw new SemanticError(
+            'bad-request',
+            '`patch` is no longer accepted: edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration, or send `announceToAgent`.',
+          )
+        }
+        const announceToAgent = body.announceToAgent
+        if (typeof announceToAgent !== 'boolean') {
           throw new SemanticError('bad-request', '`announceToAgent` must be a boolean.')
         }
         if (hooks.editConfig === undefined) {
           throw new SemanticError(
             'unsupported',
-            'This Host exposes no config editor; edit the plugin row under Settings → Plugins.',
+            'This Host exposes no config editor; edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration.',
           )
         }
-        await hooks.editConfig({ announceToAgent: announce })
+        const applied = { announceToAgent }
+        await hooks.editConfig(applied)
         const workspace = optionalString(body.workspace)
-        // The row may reload while this request is in flight, so the caller is
-        // expected to reconcile by re-reading state; when it can be answered in
-        // the same instance, the fresh state is returned directly.
-        if (workspace === undefined) return writeJson(res, 200, { ok: true, announceToAgent: announce })
-        writeJson(res, 200, await service.state(workspace))
+        if (workspace === undefined) {
+          const echo: SettingsEcho = { ok: true, applied }
+          return writeJson(res, 200, echo)
+        }
+        // A volatile write is committed in place, so `applied` is already what the
+        // profile holds; the state read is a convenience for callers that need the
+        // whole panel state, and a read that fails must not fail the write.
+        let state: SettingsResponse | undefined
+        try {
+          state = { ...(await service.state(workspace)), applied }
+        } catch {
+          state = undefined
+        }
+        writeJson(res, 200, state ?? { ok: true, applied } satisfies SettingsEcho)
       } catch (error) {
         sendFailure(res, error)
       }
@@ -347,5 +394,5 @@ export function makeSemanticRoutes(
     },
   }
 
-  return [healthRoute, settings, state, scan, save, raw, init, accept]
+  return [healthRoute, config, settings, state, scan, save, raw, init, accept]
 }

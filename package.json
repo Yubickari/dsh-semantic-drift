@@ -1,6 +1,6 @@
 {
   "name": "dsh-semantic-drift",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "One versioned vocabulary of a project's business concepts, a read-only drift scan, and the same naming rules in every agent prompt. A DSH plugin.",
   "type": "module",
   "main": "lib/index.js",
@@ -31,7 +31,9 @@
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": []
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "dependencies": {

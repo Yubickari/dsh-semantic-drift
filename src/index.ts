@@ -6,7 +6,9 @@
  * - five agent tools (`semantic_*`, `drift_scan`), registered globally, from any
  *   session;
  * - the `/semantic-drift/*` routes the browser half talks to;
- * - one system-prompt section, when `announceToAgent` is on.
+ * - one system-prompt section, registered unconditionally: it goes silent by
+ *   returning an empty text while `announceToAgent` is off, so flipping that
+ *   switch — a volatile field the Loader commits in place — needs no reload.
  *
  * `webServer` is probed with `ctx.get` instead of injected: a Host without the
  * browser carrier still gets the tools and the prompt, which is the graceful
@@ -17,7 +19,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { Config } from './config.ts'
+import { Config, announceEnabled, liveConfig } from './config.ts'
+import type { Volatile } from './config.ts'
 import { PROMPT_SECTION, PROMPT_SECTION_ORDER, buildPromptText } from './prompt.ts'
 import { PACKAGE_NAME, ROW_ID } from './protocol.ts'
 import { makeSemanticRoutes } from './routes.ts'
@@ -29,7 +32,7 @@ import { createWorkspaceResolver } from './workspace.ts'
 export { Config }
 
 /** Package version, kept in sync with package.json by a test. */
-export const VERSION = '0.1.4'
+export const VERSION = '0.1.5'
 
 /**
  * Services this plugin cannot work without.
@@ -56,8 +59,8 @@ interface PluginContext {
   logger?(name: string): { info(message: string): void; warn(message: string): void }
 }
 
-/** Config as it arrives from the Loader. */
-type LoaderConfig = SemanticConfig
+/** Config as it arrives from the Loader: live references, one per volatile field. */
+type LoaderConfig = Record<string, Volatile<unknown>>
 
 const CONSOLE_LOGGER = (name: string) => ({
   info: (message: string) => console.info(`[${name}] ${message}`),
@@ -104,8 +107,12 @@ function loggerOf(ctx: PluginContext, name: string): { info(message: string): vo
  */
 export function apply(ctx: Context, rawConfig: LoaderConfig): void {
   const context = ctx as unknown as PluginContext
-  const config = rawConfig as unknown as SemanticConfig
+  // Every field is volatile, so the Loader hands over live references. Reading
+  // them through one wrapper is what makes tools, routes and the prompt see a
+  // settings change in place, without the row being reloaded.
+  const config = liveConfig<SemanticConfig>(rawConfig)
   const log = loggerOf(context, PACKAGE_NAME)
+
   /** What this activation actually mounted, reported by `/semantic-drift/health`. */
   const health: { tools: number; routes: number; prompt: boolean } = { tools: 0, routes: 0, prompt: false }
 
@@ -180,7 +187,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
       editor = undefined
     }
     if (editor === undefined) {
-      throw new SemanticError('unsupported', 'This Host exposes no config editor; edit the plugin row under Settings → Plugins.')
+      throw new SemanticError('unsupported', 'This Host exposes no config editor; edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration.')
     }
     const withConfig = editor.configuration?.() ?? []
     const entry = withConfig.map(item => item.entry).find(isOurEntry) ?? editor.entries().find(isOurEntry)
@@ -188,7 +195,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
       const seen = (editor.entries() ?? []).map(candidate => candidate.name ?? candidate.id).slice(0, 6)
       throw new SemanticError(
         'unsupported',
-        `${PACKAGE_NAME} is not a Loader entry in this profile (saw: ${seen.join(', ') || 'none'}); edit it under Settings → Plugins.`,
+        `${PACKAGE_NAME} is not a Loader entry in this profile (saw: ${seen.join(', ') || 'none'}); edit it under Plugins → Installed Plugins → this plugin → Configuration.`,
       )
     }
     await editor.edit(entry, current => ({ ...current, ...patch }))
@@ -201,7 +208,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
         for (const route of makeSemanticRoutes(service, () => ({
           version: VERSION,
           vocabularyPath: config.vocabularyPath,
-          announceToAgent: config.announceToAgent !== false,
+          announceToAgent: announceEnabled(config.announceToAgent),
           citationStyle: config.citationStyle,
           minConfidence: config.minConfidence,
           detectors: config.detectors,
@@ -231,16 +238,16 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
     log.info('no webServer service: the panel is unavailable, tools and prompt stay active')
   }
 
+  // Registered even while the switch is off: the section is the unit the Host
+  // assembles, so mounting and unmounting it per edit would reload the row for
+  // a setting that only has to change what one string says.
   context.effect(() => {
-    if (config.announceToAgent === false) {
-      health.prompt = false
-      return () => undefined
-    }
     const dispose = ctx.systemPrompt.section({
       name: PROMPT_SECTION,
       order: PROMPT_SECTION_ORDER,
       text: () => {
         try {
+          if (!announceEnabled(config.announceToAgent)) return ''
           return buildPromptText(context, config, workspace)
         } catch {
           // A prompt section must never fail an assembly.

@@ -234,3 +234,45 @@ test('a finding row names its detector, confidence and actions', () => {
   assert.match(html, /登记为概念/)
   assert.match(html, /接受/)
 })
+// The settings card's rounded corners and the scrollbar inside it cannot be seen
+// in a terminal, so its two layout rules are pinned here instead.
+const stylesBundle = join(outdir, 'styles.mjs')
+await build({
+  entryPoints: [new URL('../src/client/styles.ts', import.meta.url).pathname],
+  outfile: stylesBundle,
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  logLevel: 'warning',
+})
+const { PANEL_CSS } = await import(stylesBundle)
+
+/** The declarations of one rule, by exact selector. */
+function rule(css, selector) {
+  const start = css.indexOf(selector + ' {')
+  assert.ok(start >= 0, 'missing rule: ' + selector)
+  return css.slice(start, css.indexOf('}', start))
+}
+
+test('the settings card clips its corners and scrolls only its body', () => {
+  const card = rule(PANEL_CSS, '.sd-settings')
+  assert.match(card, /overflow:\s*hidden/, 'a scrollbar on the card would run over its radius')
+  assert.match(card, /padding:\s*0/, 'the title bar and the body own the padding')
+  const body = rule(PANEL_CSS, '.sd-settings-body')
+  assert.match(body, /overflow:\s*auto/)
+  assert.match(body, /scrollbar-gutter:\s*stable/, 'a reserved gutter keeps the rows from shifting')
+})
+
+test('the light theme surface separates by border and keeps its text readable', () => {
+  const dialog = rule(PANEL_CSS, '.sd-dialog')
+  assert.match(dialog, /background:\s*var\(--dsw-alias-bg-base\)/, 'bg-overlay is a grey wash behind white rows in the light theme')
+  assert.doesNotMatch(dialog, /background:\s*var\(--dsw-alias-bg-overlay\)/)
+  assert.match(rule(PANEL_CSS, '.sd-setting-row'), /var\(--dsw-alias-border-l2\)/)
+  assert.match(rule(PANEL_CSS, '.sd-number'), /var\(--dsw-alias-border-l2\)/)
+  assert.match(rule(PANEL_CSS, '.sd-setting-hint'), /font-size:\s*12px/)
+  const groupTitle = rule(PANEL_CSS, '.sd-settings-title')
+  assert.match(groupTitle, /font-size:\s*12px/)
+  assert.match(groupTitle, /font-weight:\s*600/)
+  assert.doesNotMatch(groupTitle, /uppercase/)
+  assert.match(rule(PANEL_CSS, '.sd-switch-track'), /border:\s*1px solid/, 'an off switch must be visible on a white page')
+})

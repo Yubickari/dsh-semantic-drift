@@ -2,7 +2,7 @@
 
 This plugin runs inside your DSH process. It reads source files, writes one YAML
 file (`.dsh/semantics.yaml`) through a single validated path, and registers five
-tools, eight routes and one prompt section. It makes no network requests of its own.
+tools, nine routes and one prompt section. It makes no network requests of its own.
 
 ## Reporting a vulnerability
 

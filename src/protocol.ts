@@ -229,6 +229,73 @@ export interface EffectiveConfig {
   detectors: DetectorId[]
 }
 
+/**
+ * Wire kind of one configuration field.
+ *
+ * Deliberately narrower than the schema's type names: the panel renders a form
+ * control per kind, and a schema type without a control is a contract change,
+ * not a fallback.
+ */
+export type ConfigFieldKind = 'string' | 'number' | 'boolean' | 'enum' | 'flags'
+
+/** One field of `Config.dict`, described for the settings form. */
+export interface ConfigField {
+  /** Key in `Config.dict`; DSH's own settings form edits this same key. */
+  name: string
+  kind: ConfigFieldKind
+  /** The schema's own description; absent when a field declares none. */
+  description?: string
+  default?: unknown
+  min?: number
+  max?: number
+  /** Candidates of an `enum`, members of a `flags` field. */
+  options?: string[]
+}
+
+/**
+ * `GET /semantic-drift/config` payload: the form's field table.
+ *
+ * No values: every field is volatile, so DSH renders the editable form and holds
+ * the values, and the panel reads what is in force from `state.effective`.
+ */
+export interface ConfigResponse {
+  ok: true
+  version: string
+  fields: ConfigField[]
+}
+
+/**
+ * `POST /semantic-drift/settings` payload.
+ *
+ * One member only: the prompt switch. Everything else is edited in DSH's own
+ * settings form, which a volatile field makes possible; `patch` is retired and
+ * refused, so a caller cannot write a field behind that form's back.
+ */
+export interface SettingsRequest {
+  workspace?: string
+  announceToAgent: boolean
+}
+
+/**
+ * `POST /semantic-drift/settings` answer when the request named a workspace.
+ *
+ * Still a full {@link StateResponse}, because that is what this route has always
+ * answered and what the panel consumes; `applied` rides along because the row
+ * may reload around the write, so the value this request actually wrote is the
+ * only authoritative part of the answer. A caller therefore prefers
+ * `applied.announceToAgent` and falls back to `effective.announceToAgent`.
+ */
+export type SettingsResponse = StateResponse & {
+  /** The value this request wrote; absent when the state could not be read back. */
+  applied?: { announceToAgent: boolean }
+}
+
+/** The same answer when the request named no workspace: the echo alone. */
+export interface SettingsEcho {
+  ok: true
+  applied: { announceToAgent: boolean }
+}
+
 /** One selectable workspace. */
 export interface WorkspaceOption {
   id: string
