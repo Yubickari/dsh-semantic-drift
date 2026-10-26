@@ -11,18 +11,21 @@ import { createElement } from 'react'
 /**
  * Browser-half contract test.
  *
- * The bundle under review is built from `src/` with the same wrapper the Web shell
- * uses — not read from the committed `lib/` artifact, which is only rewritten at
+ * The bundle under review is built from src/ with the same wrapper the Web shell
+ * uses — not read from the committed lib/ artifact, which is only rewritten at
  * release time. It stubs the module loader the shell provides, checks the exported
- * `{ inject, apply }` shape, drives the slot registrations, and renders the
- * registered panel through react-dom/server. It cannot prove what the user sees,
- * but it does prove the shipped bundle loads, registers every seat, and renders
- * without throwing.
+ * { inject, apply } shape, drives the slot registrations, and renders the registered
+ * panel through react-dom/server. It cannot prove what the user sees, but it does
+ * prove the shipped bundle loads, registers every seat, and renders without throwing.
+ *
+ * The configuration page is registered through the settings domain, so these tests
+ * drive ctx.inject with a stub configForms service: a shell that serves none must
+ * still get the row and the panel, and nothing else.
  */
 
 const requireFromHere = createRequire(import.meta.url)
 
-// Node exposes `navigator` as a getter, so both stubs go through defineProperty.
+// Node exposes navigator as a getter, so both stubs go through defineProperty.
 Object.defineProperty(globalThis, 'document', {
   value: { documentElement: { lang: 'zh-CN' } },
   configurable: true,
@@ -56,17 +59,51 @@ const bundled = await build({
   logLevel: 'warning',
 })
 const bundleFile = join(outdir, 'client-contract.js')
-await writeFile(bundleFile, `window.__ModuleLoader__.load({
-  id: 'dsh-semantic-drift',
-  factory: (require) => {
-    var module = { exports: {} };
-    ${bundled.outputFiles[0].text.trim()}
-    return module.exports;
-  },
-});
-`, 'utf8')
+const wrapper = [
+  'window.__ModuleLoader__.load({',
+  "  id: 'dsh-semantic-drift',",
+  '  factory: (require) => {',
+  '    var module = { exports: {} };',
+  bundled.outputFiles[0].text.trim(),
+  '    return module.exports;',
+  '  },',
+  '});',
+  '',
+].join('\n')
+await writeFile(bundleFile, wrapper, 'utf8')
 await import(bundleFile)
 
+/** A settings service that serves one namespace set and records the watch. */
+function servedFace(served, form = {}) {
+  const face = {
+    watches: [],
+    get(entryId) {
+      face.asked = entryId
+      return form
+    },
+    whileServed(namespaces, register) {
+      face.watches.push(namespaces)
+      const dispose = register(served)
+      return typeof dispose === 'function' ? dispose : () => undefined
+    },
+  }
+  return face
+}
+
+/** The shell's fiber inject, handing its face to the callback once. */
+function ctxInject(face) {
+  return (services, callback) => {
+    assert.deepEqual(services, ['configForms'], 'the page needs the settings domain')
+    callback(face)
+    return () => undefined
+  }
+}
+
+/**
+ * Apply the bundle to a stub shell.
+ * @param options.slotsInject - replaces the slot service's inject.
+ * @param options.ctxInject - supplies ctx.inject; absent means a shell without it.
+ */
 function mountClient(options = {}) {
   assert.ok(loaded !== undefined, 'the bundle must register itself with window.__ModuleLoader__')
   const registrations = []
@@ -74,7 +111,7 @@ function mountClient(options = {}) {
     slots: {
       inject(key, callback) {
         assert.equal(typeof key, 'string')
-        if (options.inject !== undefined) return options.inject(key, callback)
+        if (options.slotsInject !== undefined) return options.slotsInject(key, callback)
         const dispose = callback()
         return typeof dispose === 'function' ? dispose : () => undefined
       },
@@ -88,37 +125,71 @@ function mountClient(options = {}) {
       return typeof cleanup === 'function' ? cleanup : () => undefined
     },
   }
+  if (options.ctxInject !== undefined) ctx.inject = options.ctxInject
   loaded.exports.apply(ctx)
   return registrations
 }
 
-test('the browser bundle registers a sidebar row, a main panel and a settings page', () => {
+test('the browser bundle registers a sidebar row and a main panel', () => {
   assert.equal(loaded.id, 'dsh-semantic-drift')
   assert.deepEqual(loaded.exports.inject, ['slots'])
   const registrations = mountClient()
-  assert.equal(registrations.length, 3)
+  assert.deepEqual(registrations.map(entry => entry.options.name), ['sidebar.panellist', 'main'])
   const row = registrations.find(entry => entry.options.name === 'sidebar.panellist')
   const panel = registrations.find(entry => entry.options.name === 'main')
-  const config = registrations.find(entry => entry.options.name === 'plugins.row.config')
-  assert.ok(row !== undefined, 'a sidebar row must be registered')
-  assert.ok(panel !== undefined, 'a main panel must be registered')
-  assert.ok(config !== undefined, 'the installed-plugin settings page must be registered')
   assert.equal(row.options.id, 'semantic-drift')
   assert.equal(panel.options.key, 'semantic-drift')
-  assert.equal(config.options.key, 'dsh-semantic-drift#semantic-drift', 'the seat is keyed by package and row id')
   assert.equal(row.options.label(), '语义漂移词表')
   assert.equal(typeof row.component, 'function')
   assert.equal(typeof panel.component, 'function')
+})
+
+test('a shell without ctx.inject still gets the row and the panel', () => {
+  const registrations = mountClient()
+  assert.deepEqual(registrations.map(entry => entry.options.name), ['sidebar.panellist', 'main'])
+})
+
+test('the served entry id keys the bundle config page', () => {
+  const form = { getSnapshot: () => ({ status: 'ready', writable: true }), subscribe: () => () => undefined, set: async () => true }
+  const face = servedFace(new Set(['semantic-drift']), form)
+  const registrations = mountClient({ ctxInject: ctxInject(face) })
+
+  assert.deepEqual(registrations.map(entry => entry.options.name), ['sidebar.panellist', 'main', 'plugins.bundle.config'])
+  const config = registrations.find(entry => entry.options.name === 'plugins.bundle.config')
+  assert.equal(config.options.key, 'dsh-semantic-drift', 'the seat is keyed by the package name')
+  assert.equal(config.options.locale, 'semantic-drift')
+  assert.deepEqual(config.options.inject(), { namespace: 'semantic-drift' }, 'the entry id wins over the package name')
+  assert.deepEqual(face.watches, [['semantic-drift', 'dsh-semantic-drift']], 'the page follows both namespace candidates')
   assert.equal(typeof config.component, 'function')
 })
 
-test('a shell without the row-settings seat still gets the panel', () => {
+test('a package-name namespace is used when the entry id is not served', () => {
+  const face = servedFace(new Set(['dsh-semantic-drift']))
+  const registrations = mountClient({ ctxInject: ctxInject(face) })
+  const config = registrations.find(entry => entry.options.name === 'plugins.bundle.config')
+  assert.ok(config !== undefined, 'a served package name is enough to register the page')
+  assert.deepEqual(config.options.inject(), { namespace: 'dsh-semantic-drift' })
+})
+
+test('a served collection handed over as a list is read the same way', () => {
+  const registrations = mountClient({ ctxInject: ctxInject(servedFace(['dsh-semantic-drift'])) })
+  const config = registrations.find(entry => entry.options.name === 'plugins.bundle.config')
+  assert.deepEqual(config.options.inject(), { namespace: 'dsh-semantic-drift' })
+})
+
+test('a face that is not the settings domain registers no page', () => {
+  const registrations = mountClient({ ctxInject: ctxInject({ get: () => ({}) }) })
+  assert.deepEqual(registrations.map(entry => entry.options.name), ['sidebar.panellist', 'main'])
+})
+
+test('a shell without the bundle-config seat still gets the panel', () => {
   const registrations = mountClient({
-    inject(key, callback) {
+    slotsInject(key, callback) {
       // A shell that never declares the seat is what a downgraded DSH looks like.
-      if (key === 'plugins.row.config') throw new Error('unknown slot')
+      if (key === 'plugins.bundle.config') throw new Error('unknown slot')
       return callback()
     },
+    ctxInject: ctxInject(servedFace(new Set(['semantic-drift']))),
   })
   assert.deepEqual(registrations.map(entry => entry.options.name), ['sidebar.panellist', 'main'])
 })

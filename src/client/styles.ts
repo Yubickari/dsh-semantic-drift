@@ -626,7 +626,18 @@ export const PANEL_CSS = `
 .sd-config-flags { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .sd-config-flag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
 .sd-config-flag input, .sd-config-check input { margin: 0; accent-color: var(--dsw-alias-brand-primary); }
-.sd-config-actions { display: flex; align-items: center; gap: 8px; }
+/* A locked form still shows what is in force, so a disabled control keeps its
+   text colour and only loses its outline weight: bg-layer-2 is white in the
+   light theme, so a filled control would read as an empty box. */
+.sd-config :disabled { cursor: not-allowed; }
+.sd-config .sd-input:disabled, .sd-config .sd-select:disabled {
+  color: var(--dsw-alias-label-secondary);
+  border-style: dashed;
+}
+.sd-config[data-locked='true'] .sd-config-label { color: var(--dsw-alias-label-secondary); }
+/* The one line under the form: no button stands beside it, because there is
+   nothing to save. */
+.sd-config-foot { font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .sd-config-status {
   display: flex;
   flex-direction: column;
@@ -639,11 +650,11 @@ export const PANEL_CSS = `
 }
 .sd-config-status-title { font-weight: 600; }
 .sd-config-status-detail { color: var(--dsw-alias-label-secondary); }
-.sd-config-status[data-kind='success'] { border-color: var(--dsw-alias-state-success-primary); }
 .sd-config-status[data-kind='error'] { border-color: var(--dsw-alias-state-error-primary); }
 .sd-config-status[data-kind='error'] .sd-config-status-title,
 .sd-config-status[data-kind='error'] .sd-config-status-detail { color: var(--dsw-alias-state-error-primary); }
-.sd-config-status[data-kind='info'] .sd-config-status-title { color: var(--dsw-alias-label-secondary); }
+/* The retry button of a failed read lives inside the block, not in a bar. */
+.sd-config-status .sd-button { align-self: flex-start; margin-top: 4px; }
 `
 
 /** Inline style helpers, so components read as layout rather than CSS strings. */

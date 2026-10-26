@@ -1220,7 +1220,7 @@ test('the settings dialog groups its rows and drops the project and version bloc
   assert.doesNotMatch(text, /词表路径/, 'the read-only project rows are gone')
   assert.doesNotMatch(text, /本项目/, 'the read-only project block is gone')
   assert.match(text, /已安装插件/, 'a pointer line replaces the project block')
-  assert.match(text, /停用再启用/, 'and says the plugin has to be reloaded')
+  assert.match(text, /改动立即生效/, 'and says the change applies immediately')
 
   const labels = [...dialog.querySelectorAll('button')].map(button => button.textContent?.trim() ?? '')
   assert.equal(labels.includes('完成'), false, 'edits apply immediately, so no done button')

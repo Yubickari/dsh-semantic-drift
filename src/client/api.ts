@@ -12,17 +12,24 @@ import { API_PREFIX } from '../protocol.ts'
 import type {
   AcceptRequest,
   ApiFailure,
+  ConfigField,
   ConfigResponse,
   SaveRequest,
   SaveRawRequest,
   ScanResponse,
-  SettingsEcho,
-  SettingsRequest,
   StateResponse,
   ValidationIssue,
   VocabularyDocument,
   WriteResponse,
 } from '../protocol.ts'
+
+/**
+ * `GET /config` payload: the field table, in declaration order.
+ *
+ * Narrowed on purpose. The values are the settings domain's business, so a page
+ * that also read them here would render a copy that a live write cannot update.
+ */
+export type ConfigFieldTable = Pick<ConfigResponse, 'ok' | 'version'> & { fields: ConfigField[] }
 
 const BASE = API_PREFIX.replace(/^\//, '')
 
@@ -74,22 +81,15 @@ export async function fetchState(workspace?: string): Promise<StateResponse> {
   return await call<StateResponse>(`state${query}`)
 }
 
-/** Read the plugin row's project settings and how to render each one. */
-export async function fetchConfig(): Promise<ConfigResponse> {
-  return await call<ConfigResponse>('config')
-}
-
 /**
- * Write one settings patch.
+ * Read the field table of this plugin's configuration page.
  *
- * Sent without a workspace on purpose: the route then answers the flat echo of
- * what it stored (`applied`) instead of a whole panel state, which is all this
- * page needs — and a settings write must not pull a state read that needs a
- * workspace just to prove it succeeded.
+ * The payload carries no values: a live form reads those from the
+ * `configForms` snapshot, which is also what its writes update, so this page
+ * never needs a second source of truth for what is in force.
  */
-export async function saveConfigPatch(patch: Record<string, unknown>): Promise<SettingsEcho> {
-  const request: SettingsRequest = { patch }
-  return await call<SettingsEcho>('settings', { method: 'POST', body: JSON.stringify(request) })
+export async function fetchConfig(): Promise<ConfigFieldTable> {
+  return await call<ConfigFieldTable>('config')
 }
 
 /** Run one read-only scan. */
