@@ -9,8 +9,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write      # create the GitHub release
-  id-token: write      # OIDC: npm trusted publishing + provenance
+  # No `id-token: write`: with it, npm prefers trusted publishing over NPM_TOKEN and
+  # the package's trusted-publisher entry denies the publish ("OIDC permission denied
+  # for this action"). Token auth is authoritative until that npm entry is fixed; the
+  # provenance flag goes with it, because provenance is signed through OIDC.
+  contents: write
 
 jobs:
   publish:
@@ -43,42 +46,16 @@ jobs:
       - run: pnpm build
       - name: The committed bundle matches the source
         run: git diff --exit-code -- lib
-      # Prefer OIDC (no secret to rotate); the OIDC exchange was denied by npm once
-      # ("OIDC permission denied for this action"), most likely a trusted-publisher
-      # entry that does not allow `npm publish`. A configured NPM_TOKEN therefore
-      # takes over, and the run says which path it used. Both paths publish
-      # provenance, because `id-token: write` is granted either way.
-      - name: Does this version need publishing?
-        id: check
+      - name: Publish to npm
         run: |
           version="${GITHUB_REF_NAME#v}"
           if npm view "dsh-semantic-drift@${version}" version >/dev/null 2>&1; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "::notice::dsh-semantic-drift@${version} is already on npm; nothing to publish"
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-      - name: Which credential can publish?
-        id: auth
-        if: steps.check.outputs.publish == 'true'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "${NPM_TOKEN}" ]; then
-            echo "mode=token" >> "$GITHUB_OUTPUT"
-            echo "::notice::publishing with the NPM_TOKEN secret"
-          else
-            echo "mode=oidc" >> "$GITHUB_OUTPUT"
-            echo "::notice::no NPM_TOKEN secret; publishing through OIDC trusted publishing"
-          fi
-      - name: Publish to npm (token)
-        if: steps.check.outputs.publish == 'true' && steps.auth.outputs.mode == 'token'
-        run: npm publish --provenance --access public
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Publish to npm (OIDC)
-        if: steps.check.outputs.publish == 'true' && steps.auth.outputs.mode == 'oidc'
-        run: npm publish --provenance --access public
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:
