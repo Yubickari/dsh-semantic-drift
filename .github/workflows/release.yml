@@ -9,11 +9,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  # No `id-token: write`: with it, npm prefers trusted publishing over NPM_TOKEN and
-  # the package's trusted-publisher entry denies the publish ("OIDC permission denied
-  # for this action"). Token auth is authoritative until that npm entry is fixed; the
-  # provenance flag goes with it, because provenance is signed through OIDC.
-  contents: write
+  contents: write      # create the GitHub release
+  # No npm token: the publish authenticates with GitHub's OIDC identity, which the
+  # package trusts (npmjs → the package → Settings → Trusted publishing → publish
+  # directly and manage dist-tags). Provenance is signed through the same exchange.
+  id-token: write
 
 jobs:
   publish:
@@ -53,9 +53,7 @@ jobs:
             echo "::notice::dsh-semantic-drift@${version} is already on npm; nothing to publish"
             exit 0
           fi
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          npm publish --provenance --access public
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:
