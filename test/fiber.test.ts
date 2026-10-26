@@ -3,6 +3,7 @@ import test from 'node:test'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { validateConfigPatch } from '../src/config.ts'
 
 /**
  * Integration test over the BUILT host artifact (`lib/index.js`).
@@ -65,7 +66,7 @@ function mount(root: string, extra: Record<string, unknown> = {}): Harness {
   return { ctx, root, tools, routes, sections, dispose: () => { for (const cleanup of cleanups.reverse()) cleanup() } }
 }
 
-test('the built host mounts five tools, eight routes and one prompt section', async () => {
+test('the built host mounts five tools, nine routes and one prompt section', async () => {
   const module = await import('../lib/index.js')
   const root = await fixture()
   const harness = mount(root)
@@ -85,6 +86,7 @@ test('the built host mounts five tools, eight routes and one prompt section', as
     harness.routes.map(route => route.path).sort(),
     [
       '/semantic-drift/accept',
+      '/semantic-drift/config',
       '/semantic-drift/health',
       '/semantic-drift/init',
       '/semantic-drift/raw',
@@ -151,12 +153,13 @@ async function callRoute(
   route: Record<string, unknown>,
   method: string,
   body?: unknown,
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   const handler = route.handler as (req: unknown, res: unknown) => Promise<void> | void
   const listeners: Record<string, Array<(value?: unknown) => void>> = { data: [], end: [], error: [] }
   const req = {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     on(event: string, callback: (value?: unknown) => void) {
       ;(listeners[event] ??= []).push(callback)
       return req
@@ -233,11 +236,8 @@ test('a tool refusal is a value, not an exception', async () => {
   harness.dispose()
 })
 
-test('the health route reports what the activation mounted', async () => {
-  const module = await import('../lib/index.js')
-  const root = await fixture()
-  const harness = mount(root)
-  module.apply(harness.ctx, module.Config())
+/** Read the health route synchronously, the way the web shell polls it. */
+function callHealth(harness: Harness): Record<string, unknown> {
   const route = harness.routes.find(entry => entry.path === '/semantic-drift/health') as unknown as {
     kind: string
     handler(req: unknown, res: unknown): void
@@ -245,30 +245,66 @@ test('the health route reports what the activation mounted', async () => {
   assert.equal(route.kind, 'exact')
   let status = 0
   let body = ''
-  const res = {
+  route.handler({ method: 'GET', headers: {} }, {
     writeHead(code: number) { status = code },
     end(payload: string) { body = payload },
-  }
-  route.handler({ method: 'GET', headers: {} }, res)
+  })
   assert.equal(status, 200)
-  const health = JSON.parse(body) as Record<string, unknown>
+  return JSON.parse(body) as Record<string, unknown>
+}
+
+/** Call a prompt section the way an assembly does. */
+function promptText(section: Record<string, unknown>): string {
+  return (section.text as () => string)()
+}
+
+test('the health route reports what the activation mounted', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const health = callHealth(harness)
   assert.equal(health.ok, true)
   assert.equal(health.tools, 5)
-  assert.equal(health.routes, 8)
+  assert.equal(health.routes, 9)
   assert.equal(health.promptSection, true)
   assert.equal(health.announceToAgent, true)
   harness.dispose()
 })
 
-test('announceToAgent=false leaves the prompt untouched', async () => {
+test('announceToAgent=false keeps the section registered and lets it say nothing', async () => {
   const module = await import('../lib/index.js')
   const root = await fixture()
   const harness = mount(root)
   module.apply(harness.ctx, module.Config({ announceToAgent: false }))
-  assert.equal(harness.sections.length, 0)
+  // Registering and then unmounting the section per edit would reload the row
+  // for a setting that only has to change what one string says.
+  assert.equal(harness.sections.length, 1, 'the section is mounted either way')
+  assert.equal(harness.sections[0].name, 'plugin:semantic-drift')
+  assert.equal(promptText(harness.sections[0]), '', 'off means an empty section, not an absent one')
   assert.equal(harness.tools.length, 5, 'turning the prompt off must not disable the tools')
   const health = harness.routes.find(entry => entry.path === '/semantic-drift/health')
   assert.ok(health !== undefined, 'the health route mounts regardless of the prompt setting')
+  harness.dispose()
+})
+
+test('a volatile switch is read live, without remounting the row', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  // The shape the Loader hands over for a volatile field: a live reference.
+  let on = false
+  // `meta.volatile` is the flag the Loader reads to commit the field in place
+  // instead of disposing the row: the behaviour starts here, in the schema.
+  assert.equal(module.Config.dict.announceToAgent.meta.volatile, true)
+  module.apply(harness.ctx, { ...module.Config(), announceToAgent: { get: () => on } })
+  assert.equal(harness.sections.length, 1)
+  assert.equal(promptText(harness.sections[0]), '', 'off: mounted but silent')
+  assert.equal(callHealth(harness).announceToAgent, false)
+
+  on = true
+  assert.match(promptText(harness.sections[0]), /Project vocabulary/, 'on: the same instance now announces')
+  assert.equal(callHealth(harness).announceToAgent, true, 'health reports the live value')
   harness.dispose()
 })
 
@@ -321,6 +357,214 @@ test('the injection switch is written back through the Host config editor', asyn
   const state = applied.json as Record<string, unknown>
   assert.equal(state.ok, true)
   assert.ok(state.effective !== undefined, 'the answer carries the state, not a bare acknowledgement')
+  assert.deepEqual(state.applied, { announceToAgent: false }, 'and the authoritative echo of what was written')
+  harness.dispose()
+})
+
+/** A config editor that records the patches it is asked to commit. */
+function recordingEditor(edits: Array<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    entries: () => [{ id: 'include:semantic-drift', name: 'dsh-semantic-drift' }],
+    edit: async (
+      _entry: unknown,
+      change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+    ) => {
+      edits.push(change({ vocabularyPath: '.dsh/semantics.yaml', announceToAgent: true }, {}))
+    },
+  }
+}
+
+test('the config route reports every field the schema declares', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/config') as Record<string, unknown>
+  const answer = await callRoute(route, 'GET')
+  assert.equal(answer.status, 200)
+  const fields = answer.json.fields as Array<{
+    name: string
+    kind: string
+    options?: string[]
+    description?: string
+    default?: unknown
+    min?: number
+    max?: number
+  }>
+  // The whole point of deriving the form from Config.dict: a field added to the
+  // schema is described here without a second list to keep in step.
+  assert.deepEqual(
+    fields.map(field => field.name).sort(),
+    Object.keys(module.Config.dict).sort(),
+    'the field set must be the schema itself',
+  )
+  const values = answer.json.values as Record<string, unknown>
+  assert.deepEqual(Object.keys(values).sort(), Object.keys(module.Config.dict).sort())
+  const byName = new Map(fields.map(field => [field.name, field]))
+  assert.equal(byName.get('vocabularyPath')?.kind, 'string')
+  assert.equal(byName.get('announceToAgent')?.kind, 'boolean')
+  assert.equal(byName.get('announceToAgent')?.default, true)
+  assert.equal(byName.get('timeoutMs')?.kind, 'number')
+  assert.equal(byName.get('timeoutMs')?.min, 1_000)
+  assert.equal(byName.get('timeoutMs')?.max, 120_000)
+  assert.equal(byName.get('citationStyle')?.kind, 'enum')
+  assert.deepEqual(byName.get('citationStyle')?.options, ['file+symbol', 'file:line'])
+  assert.equal(byName.get('detectors')?.kind, 'flags')
+  assert.deepEqual(
+    byName.get('detectors')?.options,
+    ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'],
+  )
+  for (const field of fields) {
+    assert.equal(typeof field.description, 'string', `${field.name} must carry its schema description`)
+  }
+  assert.equal(values.vocabularyPath, '.dsh/semantics.yaml')
+  assert.equal(values.announceToAgent, true)
+  assert.equal(answer.json.version, module.VERSION)
+  const wrongMethod = await callRoute(route, 'POST', {})
+  assert.equal(wrongMethod.status, 405, 'the config route is read-only')
+  const crossSite = await callRoute(route, 'GET', undefined, { 'sec-fetch-site': 'cross-site' })
+  assert.equal(crossSite.status, 403, 'a foreign page may not read the settings form')
+  harness.dispose()
+})
+
+test('the settings route refuses a patch the schema does not allow', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const edits: Array<Record<string, unknown>> = []
+  const harness = mount(root, { configEditor: recordingEditor(edits) })
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+
+  const unknownKey = await callRoute(route, 'POST', { workspace: root, patch: { nonsense: 1 } })
+  assert.equal(unknownKey.status, 400)
+  assert.equal(unknownKey.json.code, 'bad-request')
+  assert.match(String(unknownKey.json.message), /nonsense/, 'the refusal must name the key')
+
+  const outOfRange = await callRoute(route, 'POST', { workspace: root, patch: { timeoutMs: 10 } })
+  assert.equal(outOfRange.status, 400)
+  assert.match(String(outOfRange.json.message), /timeoutMs/)
+  assert.match(String(outOfRange.json.message), /1000/, 'the schema bound is what refuses it')
+
+  // The schema answers null with the field default, so a null patch would look
+  // like a successful write that silently discarded the configured value.
+  const nullNumber = await callRoute(route, 'POST', { workspace: root, patch: { timeoutMs: null } })
+  assert.equal(nullNumber.status, 400)
+  assert.match(String(nullNumber.json.message), /timeoutMs/, 'the refusal must name the nulled field')
+  assert.match(String(nullNumber.json.message), /null/)
+
+  const nullFlags = await callRoute(route, 'POST', { workspace: root, patch: { detectors: null } })
+  assert.equal(nullFlags.status, 400)
+  assert.match(String(nullFlags.json.message), /detectors/)
+
+  const badEnum = await callRoute(route, 'POST', { workspace: root, patch: { citationStyle: 'file:lines' } })
+  assert.equal(badEnum.status, 400)
+  assert.match(String(badEnum.json.message), /citationStyle/)
+
+  const badFlags = await callRoute(route, 'POST', { workspace: root, patch: { detectors: ['nonsense'] } })
+  assert.equal(badFlags.status, 400)
+
+  const notAnObject = await callRoute(route, 'POST', { workspace: root, patch: ['timeoutMs'] })
+  assert.equal(notAnObject.status, 400)
+
+  const badAnnounce = await callRoute(route, 'POST', { workspace: root, announceToAgent: 'yes' })
+  assert.equal(badAnnounce.status, 400)
+  assert.match(String(badAnnounce.json.message), /announceToAgent/)
+
+  const reference = await callRoute(route, 'POST', {
+    workspace: root,
+    patch: { announceToAgent: { get: () => false } },
+  })
+  assert.equal(reference.status, 400, 'a patch carries values, not live references')
+
+  const nothing = await callRoute(route, 'POST', { workspace: root })
+  assert.equal(nothing.status, 400, 'one of the two members is required')
+
+  const crossSite = await callRoute(route, 'POST', { workspace: root, announceToAgent: false }, {
+    'sec-fetch-site': 'cross-site',
+  })
+  assert.equal(crossSite.status, 403, 'a foreign page may not write the plugin row')
+
+  assert.equal(edits.length, 0, 'a refused request must reach no config editor')
+  harness.dispose()
+})
+
+test('the settings route writes a patch and the switch in one edit and echoes it', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const edits: Array<Record<string, unknown>> = []
+  const harness = mount(root, { configEditor: recordingEditor(edits) })
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+
+  const both = await callRoute(route, 'POST', {
+    workspace: root,
+    announceToAgent: false,
+    patch: { minConfidence: 'high', detectors: ['contract-drift'] },
+  })
+  assert.equal(both.status, 200)
+  assert.equal(edits.length, 1, 'one request is one write, so the row cannot be left half applied')
+  assert.deepEqual(both.json.applied, {
+    minConfidence: 'high',
+    detectors: ['contract-drift'],
+    announceToAgent: false,
+  })
+  // The fake editor commits nothing, which is exactly the case the echo exists
+  // for: the answering instance still reports the value it was mounted with.
+  const state = both.json.effective as Record<string, unknown>
+  assert.equal(state.announceToAgent, true, 'the state is read from the instance that answered')
+  assert.equal(both.json.ok, true)
+
+  const echo = await callRoute(route, 'POST', { announceToAgent: true })
+  assert.equal(echo.status, 200)
+  assert.deepEqual(echo.json, { ok: true, applied: { announceToAgent: true } }, 'no workspace, no state read')
+  harness.dispose()
+})
+
+test('a validated patch holds plain values, never a live reference', () => {
+  // A volatile field validates into `{ get() }`, and that reference has no YAML
+  // representation: it must not survive the validator.
+  const validated = validateConfigPatch({ announceToAgent: false })
+  assert.equal(validated.ok, true)
+  if (!validated.ok) return
+  assert.equal(validated.value.announceToAgent, false)
+  assert.equal(typeof validated.value.announceToAgent, 'boolean')
+
+  for (const candidate of [null, undefined]) {
+    const refused = validateConfigPatch({ timeoutMs: candidate })
+    assert.equal(refused.ok, false, 'null must be refused, not answered with the default')
+    if (refused.ok) continue
+    assert.match(refused.message, /timeoutMs/)
+    assert.match(refused.message, /null/)
+  }
+})
+
+test('the volatile switch is written as a plain boolean, whichever member carries it', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const edits: Array<Record<string, unknown>> = []
+  const harness = mount(root, { configEditor: recordingEditor(edits) })
+  module.apply(harness.ctx, module.Config())
+  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+
+  const viaPatch = await callRoute(route, 'POST', { workspace: root, patch: { announceToAgent: false } })
+  assert.equal(viaPatch.status, 200)
+  assert.equal(edits.length, 1)
+  assert.equal(edits[0].announceToAgent, false, 'the profile write is handed a value, not a reference')
+  assert.equal(typeof edits[0].announceToAgent, 'boolean')
+  assert.deepEqual(viaPatch.json.applied, { announceToAgent: false })
+  assert.equal(typeof (viaPatch.json.applied as Record<string, unknown>).announceToAgent, 'boolean')
+
+  // Naming the switch in both members is still one write, and the top-level
+  // member wins: that is the member the first callers of this route send.
+  const both = await callRoute(route, 'POST', {
+    workspace: root,
+    announceToAgent: true,
+    patch: { announceToAgent: false },
+  })
+  assert.equal(both.status, 200)
+  assert.equal(edits.length, 2, 'one write per request')
+  assert.equal(edits[1].announceToAgent, true, 'the top-level member takes precedence over the patch')
+  assert.deepEqual(both.json.applied, { announceToAgent: true })
   harness.dispose()
 })
 

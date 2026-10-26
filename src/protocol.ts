@@ -229,6 +229,71 @@ export interface EffectiveConfig {
   detectors: DetectorId[]
 }
 
+/**
+ * Wire kind of one configuration field.
+ *
+ * Deliberately narrower than the schema's type names: the panel renders a form
+ * control per kind, and a schema type without a control is a contract change,
+ * not a fallback.
+ */
+export type ConfigFieldKind = 'string' | 'number' | 'boolean' | 'enum' | 'flags'
+
+/** One field of `Config.dict`, described for the settings form. */
+export interface ConfigField {
+  /** Key in `Config.dict`; the same key `values` and a patch use. */
+  name: string
+  kind: ConfigFieldKind
+  /** The schema's own description; absent when a field declares none. */
+  description?: string
+  default?: unknown
+  min?: number
+  max?: number
+  /** Candidates of an `enum`, members of a `flags` field. */
+  options?: string[]
+}
+
+/** `GET /semantic-drift/config` payload: what is in force, and what may be written. */
+export interface ConfigResponse {
+  ok: true
+  version: string
+  /** Current effective values, keyed exactly like `Config.dict`. */
+  values: Record<string, unknown>
+  fields: ConfigField[]
+}
+
+/**
+ * `POST /semantic-drift/settings` payload: one write channel for every field.
+ *
+ * `announceToAgent` stays a top-level member because the original callers only
+ * ever sent that; `patch` carries any other field.
+ */
+export interface SettingsRequest {
+  workspace?: string
+  announceToAgent?: boolean
+  /** Field patches, keyed like `Config.dict`. */
+  patch?: Record<string, unknown>
+}
+
+/**
+ * `POST /semantic-drift/settings` answer when the request named a workspace.
+ *
+ * Still a full {@link StateResponse}, because that is what this route has always
+ * answered and what the panel consumes; `applied` rides along because the row
+ * may reload around the write, so the values this request actually wrote are the
+ * only authoritative part of the answer. A caller therefore prefers
+ * `applied.announceToAgent` and falls back to `effective.announceToAgent`.
+ */
+export type SettingsResponse = StateResponse & {
+  /** Key/value pairs this request wrote; absent when they could not be read back. */
+  applied?: Record<string, unknown>
+}
+
+/** The same answer when the request named no workspace: the echo alone. */
+export interface SettingsEcho {
+  ok: true
+  applied: Record<string, unknown>
+}
+
 /** One selectable workspace. */
 export interface WorkspaceOption {
   id: string

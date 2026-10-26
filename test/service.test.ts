@@ -3,6 +3,7 @@ import test from 'node:test'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { announceEnabled, liveValue } from '../src/config.ts'
 import { DEFAULT_EXCLUDES } from '../src/store.ts'
 import { createSemanticService, SemanticError } from '../src/service.ts'
 import type { SemanticConfig } from '../src/service.ts'
@@ -292,6 +293,42 @@ test('raw save refuses broken YAML and keeps the previous file', async () => {
   )
   const state = await service.state()
   assert.equal(state.vocabulary.valid, true)
+})
+
+test('a volatile announceToAgent is read live by every state answer', async () => {
+  const root = await fixture()
+  // Both shapes reach the service: a plain value for a non-volatile field (and
+  // for a volatile one the Host mounted directly), a live reference otherwise.
+  const plain = createSemanticService({ config: config(), workspace: resolverFor(root), version: '0.1.0' })
+  assert.equal((await plain.state()).effective?.announceToAgent, true)
+
+  let on = true
+  const service = createSemanticService({
+    config: { ...config(), announceToAgent: { get: () => on } },
+    workspace: resolverFor(root),
+    version: '0.1.0',
+  })
+  assert.equal((await service.state()).effective?.announceToAgent, true)
+  on = false
+  assert.equal(
+    (await service.state()).effective?.announceToAgent,
+    false,
+    'a volatile field is committed in place, so this very instance must see the change',
+  )
+  on = true
+  assert.equal((await service.state()).effective?.announceToAgent, true)
+})
+
+test('the volatile reference is unwrapped, never compared', () => {
+  let on = false
+  assert.equal(announceEnabled({ get: () => on }), false)
+  assert.equal(announceEnabled(false), false)
+  on = true
+  assert.equal(announceEnabled({ get: () => on }), true, 'the reference is read at use time')
+  assert.equal(announceEnabled(true), true)
+  assert.equal(announceEnabled(undefined), true, 'an absent field means on')
+  assert.equal(liveValue({ get: () => 'value' }), 'value')
+  assert.equal(liveValue('value'), 'value', 'a plain value passes through untouched')
 })
 
 test('VERSION stays in sync with package.json', async () => {

@@ -16,11 +16,15 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { configFields, validateConfigPatch } from './config.ts'
 import { API_PREFIX } from './protocol.ts'
 import type {
   ApiErrorCode,
   ApiFailure,
+  ConfigResponse,
   DetectorId,
+  SettingsEcho,
+  SettingsResponse,
   ValidationIssue,
   VocabularyDocument,
 } from './protocol.ts'
@@ -150,6 +154,11 @@ export interface SemanticRouteHooks {
    * with a pointer to DSH's own plugin settings form.
    */
   editConfig?(patch: Record<string, unknown>): Promise<void>
+  /**
+   * Current effective values, keyed exactly like `Config.dict`.
+   * Read per request, so a volatile field reports what is true now.
+   */
+  configValues?(): Record<string, unknown>
 }
 
 export function makeSemanticRoutes(
@@ -265,6 +274,29 @@ export function makeSemanticRoutes(
     },
   }
 
+  const config: WebRoute = {
+    kind: 'exact',
+    path: `${API_PREFIX}/config`,
+    handler: (req, res) => {
+      try {
+        if (req.method !== 'GET') return writeJson(res, 405, failure('method-not-allowed', 'Use GET.'))
+        if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
+        const info = diagnostics()
+        const body: ConfigResponse = {
+          ok: true,
+          version: typeof info.version === 'string' ? info.version : '',
+          values: hooks.configValues?.() ?? {},
+          // Derived from `Config.dict`, never listed by hand: the form and the
+          // write validation therefore cannot disagree about the field set.
+          fields: configFields(),
+        }
+        writeJson(res, 200, body)
+      } catch (error) {
+        sendFailure(res, error)
+      }
+    },
+  }
+
   const settings: WebRoute = {
     kind: 'exact',
     path: `${API_PREFIX}/settings`,
@@ -273,23 +305,50 @@ export function makeSemanticRoutes(
         if (req.method !== 'POST') return writeJson(res, 405, failure('method-not-allowed', 'Use POST.'))
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const body = await readJson(req, 4 * 1_024)
+        // `announceToAgent` keeps its own member: the first callers of this route
+        // sent nothing else, and none of them has to learn about `patch`.
         const announce = body.announceToAgent
-        if (typeof announce !== 'boolean') {
+        if (announce !== undefined && typeof announce !== 'boolean') {
           throw new SemanticError('bad-request', '`announceToAgent` must be a boolean.')
         }
+        const patch = body.patch
+        if (announce === undefined && patch === undefined) {
+          throw new SemanticError('bad-request', 'Either `announceToAgent` or `patch` is required.')
+        }
+        let applied: Record<string, unknown> = {}
+        if (patch !== undefined) {
+          const validated = validateConfigPatch(patch)
+          if (!validated.ok) throw new SemanticError('bad-request', validated.message)
+          applied = validated.value
+        }
+        // One rule for a request that names the switch twice: the top-level
+        // member wins over the same key in the patch, and either way the value
+        // written is the plain boolean this route validated.
+        if (announce !== undefined) applied = { ...applied, announceToAgent: announce }
         if (hooks.editConfig === undefined) {
           throw new SemanticError(
             'unsupported',
             'This Host exposes no config editor; edit the plugin row under Settings → Plugins.',
           )
         }
-        await hooks.editConfig({ announceToAgent: announce })
+        // One write for the whole request: the switch and the patch are the same
+        // edit, so a caller cannot leave the row half applied.
+        await hooks.editConfig(applied)
         const workspace = optionalString(body.workspace)
-        // The row may reload while this request is in flight, so the caller is
-        // expected to reconcile by re-reading state; when it can be answered in
-        // the same instance, the fresh state is returned directly.
-        if (workspace === undefined) return writeJson(res, 200, { ok: true, announceToAgent: announce })
-        writeJson(res, 200, await service.state(workspace))
+        if (workspace === undefined) {
+          const echo: SettingsEcho = { ok: true, applied }
+          return writeJson(res, 200, echo)
+        }
+        // The row may reload around this write, so `applied` is the authoritative
+        // answer; the state is the convenience that keeps the panel from having
+        // to ask again, and a read that fails must not fail the write.
+        let state: SettingsResponse | undefined
+        try {
+          state = { ...(await service.state(workspace)), applied }
+        } catch {
+          state = undefined
+        }
+        writeJson(res, 200, state ?? { ok: true, applied } satisfies SettingsEcho)
       } catch (error) {
         sendFailure(res, error)
       }
@@ -347,5 +406,5 @@ export function makeSemanticRoutes(
     },
   }
 
-  return [healthRoute, settings, state, scan, save, raw, init, accept]
+  return [healthRoute, config, settings, state, scan, save, raw, init, accept]
 }
