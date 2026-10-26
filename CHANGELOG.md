@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.5
+
+- The panel's settings dialog was rebuilt around what actually belongs to the browser:
+  workspace following, scanning and cache, display and notices, in four groups, plus
+  the agent-prompt switch. Every change takes effect immediately and the **Save** /
+  **Done** buttons are gone — the dialog closes with the × in its title bar.
+- Project-level settings (vocabulary path, citation style, tool minimum confidence,
+  the three scan budgets, and the detector set) moved out of the panel to this
+  plugin's own page under **Settings → Installed Plugins**. Saving writes the plugin
+  row and reloads it; a value that does not take effect needs the plugin disabled and
+  enabled again in the list, or a page reload.
+- Corrected a wrong claim in both READMEs: DSH does **not** render the settings form
+  from the schemastery schema. The plugin contributes the `plugins.row.config` page,
+  the form reads its fields and current values from `GET /semantic-drift/config`,
+  saving goes through `POST /semantic-drift/settings`, and the Host applies the patch
+  with its config editor before reloading the row.
+- `announceToAgent` is a volatile field now: the switch is committed in place, the
+  prompt section stays registered and returns an empty text while it is off, so one
+  click turns the injection on or off without reloading the plugin row. The previous
+  behaviour reported a save and left the switch where it was.
+- New read-only `GET /semantic-drift/config` route: the mounted surface is nine routes
+  now instead of eight.
+- The version is shown only in the panel footer (`vX.Y.Z`); the settings dialog no
+  longer repeats it.
+
 ## 0.1.4
 
 - Published through **OIDC trusted publishing**: the release workflow holds no npm

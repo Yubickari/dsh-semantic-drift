@@ -109,5 +109,5 @@ already on the registry and only creates the GitHub release.
    the GitHub release. Watch the run.
 5. Acceptance, before announcing: in a clean profile, install from npm
    (`dsh plugin --profile <name> add dsh-semantic-drift@X.Y.Z`), then confirm
-   `GET /semantic-drift/health` reports 5 tools and 8 routes and the panel scans.
+   `GET /semantic-drift/health` reports 5 tools and 9 routes and the panel scans.
 6. Verify the registry: `npm view dsh-semantic-drift version` and check `files`.
