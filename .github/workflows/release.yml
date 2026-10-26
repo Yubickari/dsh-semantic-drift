@@ -9,8 +9,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write      # create the GitHub release
-  id-token: write      # OIDC: npm trusted publishing + provenance
+  # No `id-token: write`: with it, npm prefers trusted publishing over NPM_TOKEN and
+  # the package's trusted-publisher entry denies the publish ("OIDC permission denied
+  # for this action"). Token auth is authoritative until that npm entry is fixed; the
+  # provenance flag goes with it, because provenance is signed through OIDC.
+  contents: write
 
 jobs:
   publish:
@@ -43,19 +46,16 @@ jobs:
       - run: pnpm build
       - name: The committed bundle matches the source
         run: git diff --exit-code -- lib
-      # No token: the publish authenticates with GitHub's OIDC identity, which the
-      # package must be told to trust first — npmjs → the package → Settings →
-      # Trusted publishing → GitHub Actions, repository `Yubickari/dsh-semantic-drift`,
-      # workflow `release.yml`. Provenance is produced by the same exchange.
       - name: Publish to npm
         run: |
-          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           if npm view "dsh-semantic-drift@${version}" version >/dev/null 2>&1; then
             echo "::notice::dsh-semantic-drift@${version} is already on npm; nothing to publish"
             exit 0
           fi
-          npm publish --provenance --access public
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:
