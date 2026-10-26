@@ -286,8 +286,9 @@ The loop this is built for:
   (low-confidence findings, notice duration), and agent prompts (the **prompt
   injection switch**). Every change applies at once: the browser preferences go to
   `localStorage`, the injection switch to the plugin row. There is no save button —
-  the dialog closes with the × in its title bar. Project-level settings are not here;
-  see [Configuration](#configuration).
+  the dialog closes with the × in its title bar. Project-level settings are not here:
+  one line at the bottom of the dialog points at DSH's Configuration block for this
+  bundle (see [Configuration](#configuration)).
 
 ### Configuration
 
@@ -307,19 +308,25 @@ and which file is the vocabulary.
 | `detectors` | all four | which detectors a scan runs |
 
 Every field in this table is plugin-row configuration, and all of it except
-`announceToAgent` is edited on this plugin's own page in DSH: **Settings → Installed
-Plugins → Semantic Drift Vocabulary**. DSH does not generate that form from the
-schema — the plugin contributes the page itself, to the `plugins.row.config` seat. The
-form reads its fields and their current values from `GET /semantic-drift/config`,
-saves through `POST /semantic-drift/settings`, and the Host applies the patch with its
-config editor and reloads the plugin row. A saved value is therefore only in effect
-once that row has loaded again: if it does not take, disable and re-enable the plugin
-in the list, or reload the page.
+`announceToAgent` is edited in DSH: **Plugins → Installed Plugins →
+`dsh-semantic-drift`** (the bundle) → **Configuration**. The plugin registers that page
+into the `plugins.bundle.config` seat and brings the field table (from the
+`schemastery` schema), the labels and the controls; the form itself — the values and
+the writes — is DSH's own live config form, served by its `configForms` service under
+this plugin's profile entry id, `semantic-drift`. The plugin keeps no save channel of
+its own: the page posts nothing, `GET /semantic-drift/config` answers the field table
+alone, and the values never travel over HTTP.
 
-`announceToAgent` is the exception the panel still owns, because it is **volatile**:
-the Loader commits it in place without reloading the row, the prompt section stays
-registered and returns an empty text while the switch is off, so one click is the
-whole gesture and the next prompt assembly already reflects it.
+Every field here is **volatile**: the only kind DSH shows as editable, and the kind
+the Loader commits in place instead of unmounting the plugin row. A change is therefore
+in force from the next read — no save button, no reload, nothing to toggle off and on.
+
+`announceToAgent` is the exception: it belongs to the panel's agent-prompt group, so
+the Configuration block leaves it out. The panel writes it through the Host's config
+editor — `POST /semantic-drift/settings` carries that one field and refuses a `patch`
+— and because the field is volatile the prompt section stays registered and returns an
+empty text while the switch is off: one click is the whole gesture, and the next prompt
+assembly already reflects it.
 
 Everything else in the panel's settings dialog is a browser preference kept in
 `localStorage` — not in the vocabulary file, not in the plugin row.
@@ -370,8 +377,8 @@ What you can do about it:
   it.
 * **Diagnosable.** `GET /semantic-drift/health` reports what this activation mounted
   (five tools, nine routes, one prompt section) and the effective settings;
-  `GET /semantic-drift/config` reports the project-level fields and the value each one
-  has right now.
+  `GET /semantic-drift/config` reports the field table the settings form is built from —
+  kinds, defaults, bounds, options — and no values: DSH's form holds those.
 
 ### Limits
 
