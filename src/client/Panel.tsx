@@ -21,7 +21,7 @@ import type {
   ValidationIssue,
   WriteResponse,
 } from '../protocol.ts'
-import { acceptException, ApiError, fetchState, initVocabulary, runScan, saveDocument, saveRaw, updateSettings } from './api.ts'
+import { acceptException, ApiError, appliedAnnounce, fetchState, initVocabulary, runScan, saveDocument, saveRaw, updateSettings } from './api.ts'
 import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
 import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
@@ -39,7 +39,7 @@ import { DriftList } from './DriftList.tsx'
 import { RawEditor } from './RawEditor.tsx'
 import { maybeT, t, tf } from './locales.ts'
 import type { MessageKey } from './locales.ts'
-import { CodeIcon, FollowIcon, PinIcon, PlusIcon, RefreshIcon, SettingsIcon, TrashIcon } from './icons.tsx'
+import { CloseIcon, CodeIcon, FollowIcon, PinIcon, PlusIcon, RefreshIcon, SettingsIcon, TrashIcon } from './icons.tsx'
 import { PANEL_CSS } from './styles.ts'
 
 /** Standard props the shell passes to a `main` entry. Both are optional so a
@@ -157,6 +157,11 @@ export function SemanticPanel(props: PanelProps) {
   const [scanRetentionMinutes, setScanRetentionMinutes] = useState(preferences.scanRetentionMinutes)
   /** True while the prompt-injection setting is being written back to the plugin row. */
   const [announceSaving, setAnnounceSaving] = useState(false)
+  /**
+   * The switch's optimistic value: set on the click, replaced by the Host's echo
+   * when it sends one, and cleared whenever a fresh `/state` arrives.
+   */
+  const [announcePreview, setAnnouncePreview] = useState<boolean | undefined>(undefined)
   /** When the displayed report was produced, for the age label. */
   const [scanAt, setScanAt] = useState<number | null>(null)
   /** Vocabulary mtime when it was produced, for the "file changed" badge. */
@@ -176,12 +181,15 @@ export function SemanticPanel(props: PanelProps) {
   const [exceptionClear, setExceptionClear] = useState<{ concept: Concept; count: number } | null>(null)
 
   const effectivePath = state?.workspace.path
+  /** The injection switch as shown: the optimistic value until the Host answers. */
+  const announceOn = announcePreview ?? (state?.effective?.announceToAgent === true)
 
   const load = useCallback(async (path: string | undefined) => {
     setBusy('load')
     try {
       const next = await fetchState(path)
       setState(next)
+      setAnnouncePreview(undefined)
       setNotice(current => (current?.kind === 'error' ? null : current))
     } catch (error) {
       setNotice({ kind: 'error', text: errorText(error, 'state.loadFailed'), issues: issuesOf(error) })
@@ -609,28 +617,25 @@ export function SemanticPanel(props: PanelProps) {
    *
    * This is a plugin-row setting, not a browser preference: it changes what the
    * Host injects into every agent prompt, so it has to go through the Host. The
-   * row reloads while the request is in flight; when that eats the response, the
-   * panel re-reads `/state` to show what actually took effect.
+   * switch flips on the click and the write catches up; the Host's echo then
+   * corrects it, so the row is the authority even when the two disagree.
    */
   const toggleAnnounce = useCallback(async () => {
     const effective = state?.effective
     if (effectivePath === undefined || effective === undefined || announceSaving) return
+    const before = announcePreview ?? effective.announceToAgent
+    const next = !before
+    setAnnouncePreview(next)
     setAnnounceSaving(true)
     try {
-      const next = await updateSettings(effectivePath, { announceToAgent: !effective.announceToAgent })
-      setState(next)
+      const response = await updateSettings(effectivePath, { announceToAgent: next })
+      setState(response)
+      // No echo at all means the optimistic value stands; otherwise the echo wins.
+      const applied = appliedAnnounce(response)
+      if (applied !== undefined) setAnnouncePreview(applied)
       setNotice({ kind: 'success', text: t('state.settingsSaved') })
     } catch (error) {
-      try {
-        const fresh = await fetchState(effectivePath)
-        setState(fresh)
-        if ((fresh.effective?.announceToAgent ?? effective.announceToAgent) !== effective.announceToAgent) {
-          setNotice({ kind: 'success', text: t('state.settingsSaved') })
-          return
-        }
-      } catch {
-        // Fall through to the error notice.
-      }
+      setAnnouncePreview(before)
       setNotice({
         kind: 'error',
         text: saveFailureText(error, 'state.settingsFailed', issuesOf(error)),
@@ -639,7 +644,7 @@ export function SemanticPanel(props: PanelProps) {
     } finally {
       setAnnounceSaving(false)
     }
-  }, [announceSaving, effectivePath, state])
+  }, [announcePreview, announceSaving, effectivePath, state])
 
   const openExceptionEdit = useCallback((concept: Concept, index: number) => {
     const exception = concept.accepted?.[index]
@@ -1116,164 +1121,153 @@ export function SemanticPanel(props: PanelProps) {
       {settingsOpen && (
         <div className="sd-dialog-backdrop" onClick={() => setSettingsOpen(false)}>
           <div className="sd-dialog sd-settings" onClick={event => event.stopPropagation()}>
-            <div className="sd-dialog-title">{t('settings.title')}</div>
-
-            <div className="sd-settings-section">
-              <div className="sd-settings-title">{t('settings.local')}</div>
-              <div className="sd-setting-row">
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.auto')}</div>
-                  <div className="sd-setting-hint">{t('settings.autoHint')}</div>
-                </div>
-                <button
-                  type="button"
-                  className="sd-switch"
-                  role="switch"
-                  aria-checked={auto}
-                  aria-label={t('settings.auto')}
-                  onClick={toggleAuto}
-                >
-                  <span className="sd-switch-track" data-on={auto}>
-                    <span className="sd-switch-knob" />
-                  </span>
-                </button>
-              </div>
-              <div className="sd-setting-row" data-disabled={!auto}>
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.autoScan')}</div>
-                  <div className="sd-setting-hint">
-                    {auto ? t('settings.autoScanHint') : t('settings.autoScanNeedsAuto')}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="sd-switch"
-                  role="switch"
-                  aria-checked={auto && autoScan}
-                  aria-label={t('settings.autoScan')}
-                  disabled={!auto}
-                  onClick={() => setAutoScan(value => !value)}
-                >
-                  <span className="sd-switch-track" data-on={auto && autoScan}>
-                    <span className="sd-switch-knob" />
-                  </span>
-                </button>
-              </div>
-              <div className="sd-setting-row">
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.scanRetention')}</div>
-                  <div className="sd-setting-hint">{t('settings.scanRetentionHint')}</div>
-                </div>
-                <input
-                  className="sd-number"
-                  type="number"
-                  min={0}
-                  max={1440}
-                  step={1}
-                  value={scanRetentionMinutes}
-                  aria-label={t('settings.scanRetention')}
-                  onChange={event => {
-                    const next = Number(event.target.value)
-                    setScanRetentionMinutes(Number.isFinite(next) ? Math.max(0, Math.min(1_440, Math.round(next))) : 10)
-                  }}
-                />
-                <span className="sd-hint">{t('settings.minutes')}</span>
-              </div>
-              <div className="sd-setting-row">
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.notification')}</div>
-                  <div className="sd-setting-hint">{t('settings.notificationHint')}</div>
-                </div>
-                <input
-                  className="sd-number"
-                  type="number"
-                  min={0}
-                  max={600}
-                  step={1}
-                  value={notificationSeconds}
-                  aria-label={t('settings.notification')}
-                  onChange={event => {
-                    const next = Number(event.target.value)
-                    setNotificationSeconds(Number.isFinite(next) ? Math.max(0, Math.min(600, Math.round(next))) : 3)
-                  }}
-                />
-                <span className="sd-hint">{t('settings.seconds')}</span>
-              </div>
-              <div className="sd-setting-row">
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.showLow')}</div>
-                  <div className="sd-setting-hint">{t('settings.showLowHint')}</div>
-                </div>
-                <button
-                  type="button"
-                  className="sd-switch"
-                  role="switch"
-                  aria-checked={showLow}
-                  aria-label={t('settings.showLow')}
-                  onClick={() => setShowLow(value => !value)}
-                >
-                  <span className="sd-switch-track" data-on={showLow}>
-                    <span className="sd-switch-knob" />
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <div className="sd-settings-section">
-              <div className="sd-settings-title">{t('settings.project')}</div>
-              <div className="sd-hint">{t('settings.projectHint')}</div>
-              <div className="sd-setting-row">
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.version')}</div>
-                  <div className="sd-setting-hint">{t('settings.versionHint')}</div>
-                </div>
-                <span className="sd-setting-value">{state?.version ?? '—'}</span>
-              </div>
-              <div className="sd-setting-row">
-                <div className="sd-setting-main">
-                  <div className="sd-setting-name">{t('settings.announceToAgent')}</div>
-                  <div className="sd-setting-hint">{t('settings.announceHint')}</div>
-                </div>
-                <button
-                  type="button"
-                  className="sd-switch"
-                  role="switch"
-                  aria-checked={state?.effective?.announceToAgent === true}
-                  aria-label={t('settings.announceToAgent')}
-                  disabled={state?.effective === undefined || announceSaving || busy !== null}
-                  onClick={() => void toggleAnnounce()}
-                >
-                  <span className="sd-switch-track" data-on={state?.effective?.announceToAgent === true}>
-                    <span className="sd-switch-knob" />
-                  </span>
-                </button>
-              </div>
-              {(() => {
-                const effective = state?.effective
-                const rows: Array<[string, string]> = effective === undefined
-                  ? []
-                  : [
-                      [t('settings.vocabularyPath'), effective.vocabularyPath],
-                      [t('settings.citationStyle'), effective.citationStyle],
-                      [t('settings.minConfidence'), effective.minConfidence],
-                      [t('settings.budgets'), `${effective.timeoutMs} ms · ${effective.maxFindings} · ${Math.round(effective.maxFileBytes / 1024)} KB · ${effective.maxFiles}`],
-                      [t('settings.detectors'), effective.detectors.join(', ')],
-                    ]
-                return rows.map(([name, value]) => (
-                  <div className="sd-setting-row" key={name}>
-                    <div className="sd-setting-main">
-                      <div className="sd-setting-name">{name}</div>
-                    </div>
-                    <span className="sd-setting-value" title={value}>{value}</span>
-                  </div>
-                ))
-              })()}
-            </div>
-
-            <div className="sd-form-actions">
-              <button type="button" className="sd-button sd-button-primary" onClick={() => setSettingsOpen(false)}>
-                {t('settings.done')}
+            <div className="sd-settings-head">
+              <div className="sd-dialog-title">{t('settings.title')}</div>
+              <span className="sd-spacer" />
+              <button
+                type="button"
+                className="sd-button sd-button-icon"
+                data-tip={t('settings.close')}
+                aria-label={t('settings.close')}
+                onClick={() => setSettingsOpen(false)}
+              >
+                <CloseIcon />
               </button>
+            </div>
+
+            <div className="sd-settings-body">
+              <section className="sd-settings-section">
+                <div className="sd-settings-title">{t('settings.groupWorkspace')}</div>
+                <div className="sd-setting-row">
+                  <div className="sd-setting-main">
+                    <div className="sd-setting-name">{t('settings.auto')}</div>
+                    <div className="sd-setting-hint">{t('settings.autoHint')}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="sd-switch"
+                    role="switch"
+                    aria-checked={auto}
+                    aria-label={t('settings.auto')}
+                    onClick={toggleAuto}
+                  >
+                    <span className="sd-switch-track" data-on={auto}>
+                      <span className="sd-switch-knob" />
+                    </span>
+                  </button>
+                </div>
+                <div className="sd-setting-row" data-disabled={!auto}>
+                  <div className="sd-setting-main">
+                    <div className="sd-setting-name">{t('settings.autoScan')}</div>
+                    <div className="sd-setting-hint">
+                      {auto ? t('settings.autoScanHint') : t('settings.autoScanNeedsAuto')}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="sd-switch"
+                    role="switch"
+                    aria-checked={auto && autoScan}
+                    aria-label={t('settings.autoScan')}
+                    disabled={!auto}
+                    onClick={() => setAutoScan(value => !value)}
+                  >
+                    <span className="sd-switch-track" data-on={auto && autoScan}>
+                      <span className="sd-switch-knob" />
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              <section className="sd-settings-section">
+                <div className="sd-settings-title">{t('settings.groupScan')}</div>
+                <div className="sd-setting-row">
+                  <div className="sd-setting-main">
+                    <div className="sd-setting-name">{t('settings.scanRetention')}</div>
+                    <div className="sd-setting-hint">{t('settings.scanRetentionHint')}</div>
+                  </div>
+                  <input
+                    className="sd-number"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    step={1}
+                    value={scanRetentionMinutes}
+                    aria-label={t('settings.scanRetention')}
+                    onChange={event => {
+                      const nextValue = Number(event.target.value)
+                      setScanRetentionMinutes(Number.isFinite(nextValue) ? Math.max(0, Math.min(1_440, Math.round(nextValue))) : 10)
+                    }}
+                  />
+                  <span className="sd-hint">{t('settings.minutes')}</span>
+                </div>
+              </section>
+
+              <section className="sd-settings-section">
+                <div className="sd-settings-title">{t('settings.groupDisplay')}</div>
+                <div className="sd-setting-row">
+                  <div className="sd-setting-main">
+                    <div className="sd-setting-name">{t('settings.showLow')}</div>
+                    <div className="sd-setting-hint">{t('settings.showLowHint')}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="sd-switch"
+                    role="switch"
+                    aria-checked={showLow}
+                    aria-label={t('settings.showLow')}
+                    onClick={() => setShowLow(value => !value)}
+                  >
+                    <span className="sd-switch-track" data-on={showLow}>
+                      <span className="sd-switch-knob" />
+                    </span>
+                  </button>
+                </div>
+                <div className="sd-setting-row">
+                  <div className="sd-setting-main">
+                    <div className="sd-setting-name">{t('settings.notification')}</div>
+                    <div className="sd-setting-hint">{t('settings.notificationHint')}</div>
+                  </div>
+                  <input
+                    className="sd-number"
+                    type="number"
+                    min={0}
+                    max={600}
+                    step={1}
+                    value={notificationSeconds}
+                    aria-label={t('settings.notification')}
+                    onChange={event => {
+                      const nextValue = Number(event.target.value)
+                      setNotificationSeconds(Number.isFinite(nextValue) ? Math.max(0, Math.min(600, Math.round(nextValue))) : 3)
+                    }}
+                  />
+                  <span className="sd-hint">{t('settings.seconds')}</span>
+                </div>
+              </section>
+
+              <section className="sd-settings-section">
+                <div className="sd-settings-title">{t('settings.groupAgent')}</div>
+                <div className="sd-setting-row">
+                  <div className="sd-setting-main">
+                    <div className="sd-setting-name">{t('settings.announceToAgent')}</div>
+                    <div className="sd-setting-hint">{t('settings.announceHint')}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="sd-switch"
+                    role="switch"
+                    aria-checked={announceOn}
+                    aria-label={t('settings.announceToAgent')}
+                    disabled={state?.effective === undefined || announceSaving || busy !== null}
+                    onClick={() => void toggleAnnounce()}
+                  >
+                    <span className="sd-switch-track" data-on={announceOn}>
+                      <span className="sd-switch-knob" />
+                    </span>
+                  </button>
+                </div>
+                <div className="sd-settings-note">{t('settings.movedHint')}</div>
+              </section>
             </div>
           </div>
         </div>

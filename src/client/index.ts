@@ -1,15 +1,17 @@
 /**
- * Browser entry: one sidebar row and one center-column panel.
+ * Browser entry: one sidebar row, one center-column panel and this row's page in
+ * the installed-plugin detail view.
  *
- * Both registrations go through `ctx.slots.inject`, which fires only after the
- * owning shell entry declares the seat. A shell that cannot serve the seats
- * leaves the panel absent instead of failing the boot, and the plugin can load
- * before the shell plugin without an ordering dependency.
+ * Every registration goes through `ctx.slots.inject`, which fires only after the
+ * owning shell entry declares the seat. A shell that cannot serve a seat leaves
+ * that piece absent instead of failing the boot, and the plugin can load before
+ * the shell plugin without an ordering dependency.
  *
  * @module dsh-semantic-drift/client
  */
 
-import { PANEL_ID } from '../protocol.ts'
+import { PACKAGE_NAME, PANEL_ID, ROW_ID } from '../protocol.ts'
+import { ConfigPage } from './ConfigPage.tsx'
 import { SemanticPanel } from './Panel.tsx'
 import { SidebarIcon } from './icons.tsx'
 import { dictionaries, setTranslator, t } from './locales.ts'
@@ -22,6 +24,12 @@ const PANEL_ORDER = 30
 
 /** Locale namespace this plugin owns. */
 const NS = 'semantic-drift'
+
+/** Settings seat: one inline page per installed plugin row. */
+const ROW_CONFIG_SLOT = 'plugins.row.config'
+
+/** Keyed value of that seat: the package name and the loader row it configures. */
+const ROW_CONFIG_KEY = `${PACKAGE_NAME}#${ROW_ID}`
 
 /** The shape of the slot service this plugin uses. */
 interface SlotFace {
@@ -71,6 +79,17 @@ export function apply(ctx: ClientContext): () => void {
     for (const dispose of disposers.splice(0)) dispose()
     // The web shell fails the whole boot when a plugin's apply throws.
     console.warn(`[${NS}] panel registration failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  try {
+    // Its own catcher on purpose: a shell without the row-settings seat never
+    // fires this callback, and a refusal here must not take the panel down too.
+    disposers.push(ctx.slots.inject(ROW_CONFIG_SLOT, () => ctx.slots.register({
+      name: ROW_CONFIG_SLOT,
+      key: ROW_CONFIG_KEY,
+    }, ConfigPage)))
+  } catch (error) {
+    console.warn(`[${NS}] config page registration skipped: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   return () => {

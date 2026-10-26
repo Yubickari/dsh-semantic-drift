@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
 import { createRequire } from 'node:module'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { build } from 'esbuild'
 import { JSDOM } from 'jsdom'
 
 /**
@@ -31,7 +35,36 @@ for (const key of [
 }
 Object.defineProperty(globalThis, 'window', { value: window, configurable: true })
 window.__ModuleLoader__ = { load({ factory }) { this.exports = factory(createRequire(import.meta.url)) } }
-await import('../lib/client.js')
+
+// Bundled from `src/` rather than loaded from the committed `lib/` artifact:
+// this file asserts the panel source under review, and `lib/` is only rewritten
+// at release time. The wrapper mirrors `scripts/build.mjs`, so the panel runs
+// through the same loader the Web shell uses.
+const repo = fileURLToPath(new URL('..', import.meta.url))
+const outdir = join(repo, '.tmp')
+await mkdir(outdir, { recursive: true })
+const bundled = await build({
+  entryPoints: [join(repo, 'src/client/index.ts')],
+  bundle: true,
+  platform: 'browser',
+  format: 'cjs',
+  jsx: 'automatic',
+  external: ['react', 'react-dom', 'react/jsx-runtime'],
+  define: { 'process.env.NODE_ENV': '"production"' },
+  write: false,
+  logLevel: 'warning',
+})
+const clientBundle = join(outdir, 'panel-client.js')
+await writeFile(clientBundle, `window.__ModuleLoader__.load({
+  id: 'dsh-semantic-drift',
+  factory: (require) => {
+    var module = { exports: {} };
+    ${bundled.outputFiles[0].text.trim()}
+    return module.exports;
+  },
+});
+`, 'utf8')
+await import(clientBundle)
 const clientModule = window.__ModuleLoader__.exports
 
 const CONCEPT = {
@@ -377,9 +410,10 @@ test('the auto switch follows the session workspace and pins when switched off',
     click(toggle)
     await flush(4)
     assert.equal(container.querySelector('[role="switch"]')?.getAttribute('aria-checked'), 'false')
-    const done = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '完成')
-    assert.ok(done !== undefined)
-    click(done)
+    // Every settings edit already applied; closing is the title bar's ×.
+    const close = container.querySelector('.sd-settings [aria-label="关闭"]')
+    assert.ok(close !== null, 'the dialog needs a close control')
+    click(close)
     await flush(2)
 
     cwd = '/tmp/ws-c'
@@ -757,8 +791,7 @@ test('opening the panel never scans, and the child switch controls rescan-on-fol
     click(rescanSwitch)
     await flush(2)
     assert.equal(container.querySelectorAll('[role="switch"]')[1].getAttribute('aria-checked'), 'true')
-    const done = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '完成')
-    click(done)
+    click(container.querySelector('.sd-settings [aria-label="关闭"]'))
     await flush(2)
 
     cwd = '/tmp/ws-c'
@@ -1053,37 +1086,160 @@ test('the stale badge stays in the footer, is clickable and rescans', async () =
   }
 })
 
-test('the panel can turn prompt injection off from its own settings', async () => {
+/** A switch inside the open settings dialog, by its accessible label. */
+function settingSwitch(container, label) {
+  const knob = container.querySelector(`.sd-settings [aria-label="${label}"]`)
+  assert.ok(knob !== null, `missing settings switch: ${label}`)
+  return knob
+}
+
+function jsonBody(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+}
+
+test('one click on the injection switch flips it, writes once and settles on the echo', async () => {
   resetPrefs()
   const realFetch = globalThis.fetch
-  const calls = []
-  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  const writes = []
+  let release
+  const answered = new Promise(resolve => { release = resolve })
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url)
     if (href.includes('/settings')) {
       const body = JSON.parse(String(init.body ?? '{}'))
-      calls.push(body)
-      return json({ ...STATE, effective: { ...STATE.effective, announceToAgent: body.announceToAgent } })
+      writes.push(body)
+      await answered
+      // The Host answers flat: the state plus what it actually wrote.
+      return jsonBody({
+        ...STATE,
+        effective: { ...STATE.effective, announceToAgent: body.announceToAgent },
+        applied: { announceToAgent: body.announceToAgent },
+      })
     }
-    if (href.includes('/state')) return json(STATE)
-    return json({ ok: true, vocabulary: STATE.vocabulary })
+    if (href.includes('/state')) return jsonBody(STATE)
+    return jsonBody({ ok: true, vocabulary: STATE.vocabulary })
   }
   try {
     const { container, root } = mountPanel()
     await flush(8)
     openSettings(container)
     await flush(2)
-    const knob = container.querySelector('[aria-label="注入 Agent 提示"]')
-    assert.ok(knob !== null, 'the project section must expose the injection switch')
-    assert.equal(knob.getAttribute('aria-checked'), 'true')
-    click(knob)
+    assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'true')
+
+    click(settingSwitch(container, '注入 Agent 提示'))
+    // The switch answers the click; no second click and no save button.
+    assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'false', 'one click must flip the switch')
+    assert.equal(writes.length, 1, 'one click is one write')
+
+    release()
     await flush(10)
-    assert.deepEqual(calls, [{ workspace: '/tmp/sample-app', announceToAgent: false }])
-    assert.match(container.textContent ?? '', /插件设置已保存/)
-    assert.equal(container.querySelector('[aria-label="注入 Agent 提示"]')?.getAttribute('aria-checked'), 'false')
+    assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'false')
+    assert.deepEqual(writes, [{ workspace: '/tmp/sample-app', announceToAgent: false }])
+    const saved = (container.textContent ?? '').match(/插件设置已保存/g) ?? []
+    assert.equal(saved.length, 1, 'the write is reported once')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
     resetPrefs()
   }
+})
+
+test('the injection switch follows the Host when the echo disagrees with the click', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/settings')) {
+      // The write was accepted but the row kept its old value: the echo wins.
+      return jsonBody({ ...STATE, effective: { ...STATE.effective, announceToAgent: true }, applied: { announceToAgent: true } })
+    }
+    if (href.includes('/state')) return jsonBody(STATE)
+    return jsonBody({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    openSettings(container)
+    await flush(2)
+    click(settingSwitch(container, '注入 Agent 提示'))
+    await flush(10)
+    assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'true', 'the authoritative echo corrects the optimistic flip')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('a refused injection write rolls the switch back and says so', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/settings')) {
+      return jsonBody({ ok: false, code: 'config-readonly', message: 'The plugin row is read-only.' }, 409)
+    }
+    if (href.includes('/state')) return jsonBody(STATE)
+    return jsonBody({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    openSettings(container)
+    await flush(2)
+    click(settingSwitch(container, '注入 Agent 提示'))
+    await flush(10)
+    assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'true', 'a failed write restores the old value')
+    assert.match(container.textContent ?? '', /设置未能保存/)
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('the settings dialog groups its rows and drops the project and version blocks', async () => {
+  resetPrefs()
+  const { container, root } = mountPanel()
+  await flush(8)
+  openSettings(container)
+  await flush(2)
+  const dialog = container.querySelector('.sd-settings')
+  assert.ok(dialog !== null, 'the settings dialog must be open')
+  const text = dialog.textContent ?? ''
+
+  const groups = [...dialog.querySelectorAll('.sd-settings-title')].map(node => node.textContent)
+  assert.deepEqual(groups, ['工作区跟随', '扫描与缓存', '显示与通知', 'Agent 提示'], 'four groups, in order')
+  const announceGroup = dialog.querySelector('[aria-label="注入 Agent 提示"]')?.closest('.sd-settings-section')
+  assert.equal(announceGroup?.querySelector('.sd-settings-title')?.textContent, 'Agent 提示', 'the injection switch belongs to the agent group')
+
+  assert.doesNotMatch(text, /插件版本/, 'the version belongs to the footer, not the dialog')
+  assert.doesNotMatch(text, /0\.1\.0/, 'no version number inside the dialog')
+  assert.match(container.querySelector('.sd-footer')?.textContent ?? '', /v0\.1\.0/, 'the footer keeps the version')
+
+  assert.doesNotMatch(text, /词表路径/, 'the read-only project rows are gone')
+  assert.doesNotMatch(text, /本项目/, 'the read-only project block is gone')
+  assert.match(text, /已安装插件/, 'a pointer line replaces the project block')
+  assert.match(text, /停用再启用/, 'and says the plugin has to be reloaded')
+
+  const labels = [...dialog.querySelectorAll('button')].map(button => button.textContent?.trim() ?? '')
+  assert.equal(labels.includes('完成'), false, 'edits apply immediately, so no done button')
+  assert.equal(labels.includes('保存'), false, 'edits apply immediately, so no save button')
+
+  const close = dialog.querySelector('[aria-label="关闭"]')
+  assert.ok(close !== null, 'the title bar carries the close control')
+  assert.equal(close.className.includes('sd-button-icon'), true)
+  assert.ok(dialog.querySelector('.sd-settings-body') !== null, 'rows scroll inside their own body')
+
+  click(close)
+  await flush(2)
+  assert.equal(container.querySelector('.sd-settings'), null, 'the close control dismisses the dialog')
+
+  openSettings(container)
+  await flush(2)
+  click(container.querySelector('.sd-dialog-backdrop'))
+  await flush(2)
+  assert.equal(container.querySelector('.sd-settings'), null, 'the backdrop still dismisses the dialog')
+  reactAct(() => root.unmount())
+  resetPrefs()
 })

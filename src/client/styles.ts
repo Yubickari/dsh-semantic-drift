@@ -167,26 +167,33 @@ export const PANEL_CSS = `
 .sd-switch-track {
   position: relative;
   display: inline-block;
-  width: 30px;
-  height: 17px;
-  border-radius: 9px;
-  background: var(--dsw-alias-border-l2);
-  transition: background .14s ease;
+  box-sizing: border-box;
+  width: 32px;
+  height: 18px;
+  /* The light theme has a white page and a white knob, so "off" needs a fill of
+     its own plus an outline: the previous border-l2 wash disappeared entirely. */
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 40%, transparent);
+  transition: background .14s ease, border-color .14s ease;
   flex: none;
 }
-.sd-switch-track[data-on='true'] { background: var(--dsw-alias-brand-primary); }
+.sd-switch-track[data-on='true'] {
+  background: var(--dsw-alias-brand-primary);
+  border-color: var(--dsw-alias-brand-primary);
+}
 .sd-switch-knob {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--dsw-alias-bg-base);
   box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
   transition: transform .14s ease;
 }
-.sd-switch-track[data-on='true'] .sd-switch-knob { transform: translateX(13px); }
+.sd-switch-track[data-on='true'] .sd-switch-knob { transform: translateX(14px); }
 .sd-button-ghost:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
 .sd-input, .sd-select, .sd-textarea {
   width: 100%;
@@ -457,49 +464,68 @@ export const PANEL_CSS = `
 .sd-dialog {
   width: 460px;
   max-width: 90%;
-  background: var(--dsw-alias-bg-overlay);
+  /* bg-overlay is a grey-blue in the light theme: white rows inside it read as
+     dirty. The dialog sits on bg-base and separates from the page by border and
+     shadow instead. */
+  background: var(--dsw-alias-bg-base);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   padding: 18px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .18);
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.sd-settings { width: 560px; max-height: 78vh; overflow: auto; }
+/* The title bar stays put and the body scrolls under it; a scrollbar on the card
+   itself would be painted over the rounded corners it has just clipped. */
+.sd-settings { width: 560px; max-height: 78vh; padding: 0; gap: 0; overflow: hidden; }
+.sd-settings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px 12px 18px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  flex: none;
+}
+.sd-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 18px;
+  scrollbar-gutter: stable;
+}
 .sd-settings-section { display: flex; flex-direction: column; gap: 10px; }
 .sd-settings-title {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .07em;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--dsw-alias-label-secondary);
 }
+.sd-settings-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+}
+.sd-settings-body .sd-hint { font-size: 12px; }
 .sd-setting-row[data-disabled='true'] { opacity: .55; }
 .sd-setting-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l1);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
 }
 .sd-setting-main { flex: 1; min-width: 0; }
 .sd-setting-name { font-size: 13px; }
-.sd-setting-hint { font-size: 11px; color: var(--dsw-alias-label-secondary); margin-top: 2px; }
-.sd-setting-value {
-  flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--dsw-alias-label-secondary);
-  max-width: 46%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.sd-setting-hint { font-size: 12px; color: var(--dsw-alias-label-secondary); margin-top: 2px; }
 .sd-number {
   width: 72px;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l1);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 7px;
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
@@ -554,6 +580,70 @@ export const PANEL_CSS = `
 .sd-meta { font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .sd-clickable { cursor: pointer; }
 .sd-clickable:hover { text-decoration: underline; }
+/* The config page is rendered outside .sd-root (an inline section of the
+   installed-plugin detail page), so it restates the surface and text colour it
+   needs. In the light theme bg-base, bg-layer-1 and bg-layer-2 are all white, so
+   the card separates by border-l2 plus one hairline shadow — never a grey fill. */
+.sd-config {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sd-config-summary { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.sd-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.sd-config-field { display: flex; flex-direction: column; gap: 4px; }
+.sd-config-label { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 600; }
+/* The schema key stays visible beside the localized label: the READMEs, the logs
+   and the Host's own descriptions all speak in these names. */
+.sd-config-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
+}
+/* 12px for every hint: the page is read beside the shell's own form text. */
+.sd-config-hint { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+/* border-l1 is 4% black and disappears on a white card; the L2 token (10%) is
+   the visible outline at this size. */
+.sd-config .sd-input, .sd-config .sd-select { border-color: var(--dsw-alias-border-l2); }
+.sd-config-number { width: 160px; }
+.sd-config-select { max-width: 320px; }
+.sd-config-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+.sd-config-flags { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.sd-config-flag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.sd-config-flag input, .sd-config-check input { margin: 0; accent-color: var(--dsw-alias-brand-primary); }
+.sd-config-actions { display: flex; align-items: center; gap: 8px; }
+.sd-config-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+}
+.sd-config-status-title { font-weight: 600; }
+.sd-config-status-detail { color: var(--dsw-alias-label-secondary); }
+.sd-config-status[data-kind='success'] { border-color: var(--dsw-alias-state-success-primary); }
+.sd-config-status[data-kind='error'] { border-color: var(--dsw-alias-state-error-primary); }
+.sd-config-status[data-kind='error'] .sd-config-status-title,
+.sd-config-status[data-kind='error'] .sd-config-status-detail { color: var(--dsw-alias-state-error-primary); }
+.sd-config-status[data-kind='info'] .sd-config-status-title { color: var(--dsw-alias-label-secondary); }
 `
 
 /** Inline style helpers, so components read as layout rather than CSS strings. */
