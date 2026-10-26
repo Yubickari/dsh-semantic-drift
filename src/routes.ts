@@ -16,7 +16,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { configFields, validateConfigPatch } from './config.ts'
+import { configFields } from './config.ts'
 import { API_PREFIX } from './protocol.ts'
 import type {
   ApiErrorCode,
@@ -149,16 +149,11 @@ function writeWorkspace(value: unknown): string {
 /** Host callbacks a route needs beyond the service. */
 export interface SemanticRouteHooks {
   /**
-   * Persist a plugin-row config patch through the Host's config editor.
+   * Persist the prompt switch through the Host's config editor.
    * Absent when the Host exposes none, in which case the setting is refused
    * with a pointer to DSH's own plugin settings form.
    */
-  editConfig?(patch: Record<string, unknown>): Promise<void>
-  /**
-   * Current effective values, keyed exactly like `Config.dict`.
-   * Read per request, so a volatile field reports what is true now.
-   */
-  configValues?(): Record<string, unknown>
+  editConfig?(patch: { announceToAgent: boolean }): Promise<void>
 }
 
 export function makeSemanticRoutes(
@@ -282,12 +277,13 @@ export function makeSemanticRoutes(
         if (req.method !== 'GET') return writeJson(res, 405, failure('method-not-allowed', 'Use GET.'))
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const info = diagnostics()
+        // No values: every field is volatile, so DSH renders the editable form
+        // and holds what is in force; this route is the field table alone.
         const body: ConfigResponse = {
           ok: true,
           version: typeof info.version === 'string' ? info.version : '',
-          values: hooks.configValues?.() ?? {},
-          // Derived from `Config.dict`, never listed by hand: the form and the
-          // write validation therefore cannot disagree about the field set.
+          // Derived from `Config.dict`, never listed by hand: a field added to
+          // the schema is described here without a second list to keep in step.
           fields: configFields(),
         }
         writeJson(res, 200, body)
@@ -305,43 +301,35 @@ export function makeSemanticRoutes(
         if (req.method !== 'POST') return writeJson(res, 405, failure('method-not-allowed', 'Use POST.'))
         if (!sameOrigin(req)) return writeJson(res, 403, failure('forbidden', 'Cross-site request refused.'))
         const body = await readJson(req, 4 * 1_024)
-        // `announceToAgent` keeps its own member: the first callers of this route
-        // sent nothing else, and none of them has to learn about `patch`.
-        const announce = body.announceToAgent
-        if (announce !== undefined && typeof announce !== 'boolean') {
+        // `patch` is retired, not ignored: every field is volatile now, so DSH
+        // renders the whole form and a write through this route would be a
+        // second, unchecked channel to the same settings.
+        if (body.patch !== undefined) {
+          throw new SemanticError(
+            'bad-request',
+            '`patch` is no longer accepted: edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration, or send `announceToAgent`.',
+          )
+        }
+        const announceToAgent = body.announceToAgent
+        if (typeof announceToAgent !== 'boolean') {
           throw new SemanticError('bad-request', '`announceToAgent` must be a boolean.')
         }
-        const patch = body.patch
-        if (announce === undefined && patch === undefined) {
-          throw new SemanticError('bad-request', 'Either `announceToAgent` or `patch` is required.')
-        }
-        let applied: Record<string, unknown> = {}
-        if (patch !== undefined) {
-          const validated = validateConfigPatch(patch)
-          if (!validated.ok) throw new SemanticError('bad-request', validated.message)
-          applied = validated.value
-        }
-        // One rule for a request that names the switch twice: the top-level
-        // member wins over the same key in the patch, and either way the value
-        // written is the plain boolean this route validated.
-        if (announce !== undefined) applied = { ...applied, announceToAgent: announce }
         if (hooks.editConfig === undefined) {
           throw new SemanticError(
             'unsupported',
-            'This Host exposes no config editor; edit the plugin row under Settings → Plugins.',
+            'This Host exposes no config editor; edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration.',
           )
         }
-        // One write for the whole request: the switch and the patch are the same
-        // edit, so a caller cannot leave the row half applied.
+        const applied = { announceToAgent }
         await hooks.editConfig(applied)
         const workspace = optionalString(body.workspace)
         if (workspace === undefined) {
           const echo: SettingsEcho = { ok: true, applied }
           return writeJson(res, 200, echo)
         }
-        // The row may reload around this write, so `applied` is the authoritative
-        // answer; the state is the convenience that keeps the panel from having
-        // to ask again, and a read that fails must not fail the write.
+        // A volatile write is committed in place, so `applied` is already what the
+        // profile holds; the state read is a convenience for callers that need the
+        // whole panel state, and a read that fails must not fail the write.
         let state: SettingsResponse | undefined
         try {
           state = { ...(await service.state(workspace)), applied }

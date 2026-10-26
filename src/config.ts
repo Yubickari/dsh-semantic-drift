@@ -2,23 +2,19 @@
  * Plugin configuration.
  *
  * This schema is the single declaration of the settings: `Config.dict` is read
- * back at run time as the field table of `GET /semantic-drift/config` and as the
- * validator of `POST /semantic-drift/settings`. DSH does not generate the form
- * from it — the plugin renders that form on its own page in the plugin detail
- * view, from this same field table — so a field's description, kind, bounds and
- * candidates are declared exactly once, here.
+ * back at run time as the field table of `GET /semantic-drift/config`, and DSH
+ * projects its volatile fields into the plugin settings form it renders itself.
  *
- * `announceToAgent` is deliberately volatile. An edit to it must not dispose the
- * row: the plugin registers its prompt section unconditionally and reads the
- * switch while the prompt is assembled, so the new value takes effect on the
- * next assembly. A volatile field is committed in place by the Loader
- * (`_commitVolatile`) instead of reloading the plugin, which also keeps the
- * running service, its tools and its routes alive across the change.
+ * Every field is volatile on purpose. A volatile field is the only kind DSH
+ * shows as editable, and the Loader commits an edit to one in place
+ * (`_commitVolatile`) instead of disposing the row: the running service, its
+ * tools, its routes and its prompt section all survive the change, and the new
+ * value is live from the next read.
  *
  * The price is the shape: a volatile field reaches the plugin as a live
- * reference (`{ get() }`) rather than a plain value. Read it through
- * {@link liveValue} — never compare the reference itself — so this module and
- * every caller agree on what "currently on" means.
+ * reference (`{ get() }`) rather than a plain value, so every read has to go
+ * through {@link liveValue}. {@link liveConfig} is the one wrapper that does it
+ * for the whole schema, which is what keeps the readers unaware of the shape.
  *
  * @module dsh-semantic-drift/config
  */
@@ -36,6 +32,7 @@ export const Config = z.object({
   vocabularyPath: z
     .string()
     .default(DEFAULT_VOCABULARY_PATH)
+    .volatile()
     .description('Vocabulary file, relative to the workspace root. The panel and every tool read and write this one file.'),
 
   announceToAgent: z
@@ -47,11 +44,13 @@ export const Config = z.object({
   citationStyle: z
     .union([...CITATION_STYLES])
     .default('file+symbol')
+    .volatile()
     .description('Shape of copied references: `file+symbol` stays valid across edits, `file:line` is clickable but drifts.'),
 
   minConfidence: z
     .union([...CONFIDENCE_LEVELS])
     .default('medium')
+    .volatile()
     .description('Lowest confidence the agent tools report. The panel always receives every level and filters on screen.'),
 
   timeoutMs: z
@@ -59,6 +58,7 @@ export const Config = z.object({
     .min(1_000)
     .max(120_000)
     .default(30_000)
+    .volatile()
     .description('Wall-clock budget for one scan. A scan that runs out returns the findings it already has, marked truncated.'),
 
   maxFindings: z
@@ -66,6 +66,7 @@ export const Config = z.object({
     .min(1)
     .max(50_000)
     .default(5_000)
+    .volatile()
     .description('Hard cap on findings returned by one scan.'),
 
   maxFileBytes: z
@@ -73,6 +74,7 @@ export const Config = z.object({
     .min(1_024)
     .max(64 * 1_024 * 1_024)
     .default(1_048_576)
+    .volatile()
     .description('Files larger than this are skipped and counted, never read.'),
 
   maxFiles: z
@@ -80,11 +82,13 @@ export const Config = z.object({
     .min(100)
     .max(200_000)
     .default(50_000)
+    .volatile()
     .description('Hard cap on files visited by one scan.'),
 
   detectors: z
     .array(z.union([...DETECTOR_IDS]))
     .default([...DETECTOR_IDS])
+    .volatile()
     .description('Detectors a scan runs. An empty selection runs all of them.'),
 })
 
@@ -108,6 +112,33 @@ export function liveValue<T>(value: Volatile<T> | undefined): T | undefined {
  */
 export function announceEnabled(value: Volatile<boolean> | undefined): boolean {
   return liveValue(value ?? true) !== false
+}
+
+/**
+ * Read the whole schema live.
+ *
+ * One enumerable getter per `Config.dict` field, so every reader of the config
+ * sees a plain value of the field's own type and still gets the value that is in
+ * force now. A field the Loader did not pass falls back to the schema default, so
+ * a hand-mounted context (tests, embedders) needs no full object.
+ *
+ * @param raw - the Loader's config: live references, bare values, or neither.
+ */
+export function liveConfig<T extends object>(raw: Record<string, Volatile<unknown>> | undefined): T {
+  const dict = Config.dict as unknown as Record<string, { meta?: { default?: unknown } }>
+  const source: Record<string, unknown> = {}
+  for (const name of Object.keys(dict)) {
+    Object.defineProperty(source, name, {
+      enumerable: true,
+      get(): unknown {
+        const value = liveValue(raw?.[name]) ?? dict[name]?.meta?.default
+        // Arrays are copied per read: a caller that sorts or pushes must not
+        // edit the value the Loader committed.
+        return Array.isArray(value) ? [...value] : value
+      },
+    })
+  }
+  return source as T
 }
 
 /** The parts of a schemastery field this module reads. */
@@ -167,51 +198,3 @@ export function configFields(): ConfigField[] {
   return Object.entries(dict).map(([name, field]) => describeField(name, field))
 }
 
-/** Outcome of validating a settings patch. */
-export type ConfigPatchResult =
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; message: string }
-
-/** A JSON object literal: not null, not an array, no exotic prototype. */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const prototype = Object.getPrototypeOf(value) as unknown
-  return prototype === Object.prototype || prototype === null
-}
-
-/**
- * Validate a settings patch against the schema.
- *
- * The schema is the only authority here: a key outside `Config.dict` is refused,
- * and a known key is validated by calling its own field schema, so the bounds,
- * candidates and types a write is held to cannot drift from the form that
- * advertises them. What comes back is always a plain value: a volatile field is
- * unwrapped, and null — which the schema would answer with the default — is
- * refused rather than silently overwriting a setting.
- *
- * @param patch - the decoded `patch` member, whatever its shape.
- */
-export function validateConfigPatch(patch: unknown): ConfigPatchResult {
-  if (!isPlainObject(patch)) return { ok: false, message: '`patch` must be an object of configuration fields.' }
-  const dict = Config.dict as unknown as Record<string, SchemaField & ((candidate: unknown) => unknown)>
-  const value: Record<string, unknown> = {}
-  for (const [name, candidate] of Object.entries(patch)) {
-    const field = dict[name]
-    if (field === undefined) return { ok: false, message: `${name} is not a configuration field.` }
-    // The schema answers `null` (and `undefined`) with the field's default, so a
-    // patch that sent null would silently replace the value the user chose and
-    // still look like it succeeded. A patch states values, never "unset".
-    if (candidate === null || candidate === undefined) {
-      return { ok: false, message: `${name} must not be null: send a value of the field's own type.` }
-    }
-    try {
-      // A volatile field validates into its live reference (`{ get() }`), which is
-      // a function: a patch carries plain values, and a reference that reached
-      // the config write is a value no profile serializer can represent.
-      value[name] = liveValue(field(candidate))
-    } catch (error) {
-      return { ok: false, message: `${name}: ${error instanceof Error ? error.message : String(error)}` }
-    }
-  }
-  return { ok: true, value }
-}

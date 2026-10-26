@@ -3,7 +3,7 @@ import test from 'node:test'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { announceEnabled, liveValue } from '../src/config.ts'
+import { Config, announceEnabled, liveConfig, liveValue } from '../src/config.ts'
 import { DEFAULT_EXCLUDES } from '../src/store.ts'
 import { createSemanticService, SemanticError } from '../src/service.ts'
 import type { SemanticConfig } from '../src/service.ts'
@@ -329,6 +329,80 @@ test('the volatile reference is unwrapped, never compared', () => {
   assert.equal(announceEnabled(undefined), true, 'an absent field means on')
   assert.equal(liveValue({ get: () => 'value' }), 'value')
   assert.equal(liveValue('value'), 'value', 'a plain value passes through untouched')
+})
+
+test('every config field is volatile, which is what DSH renders a form from', () => {
+  const dict = Config.dict as unknown as Record<string, { meta?: { volatile?: boolean } }>
+  // A non-volatile field is the failure that has no symptom until the settings
+  // page is opened: DSH filters the form field by field, and its write path
+  // refuses a non-volatile key, so such a setting would be uneditable.
+  const fixed = Object.entries(dict)
+    .filter(([, field]) => field.meta?.volatile !== true)
+    .map(([name]) => name)
+  assert.deepEqual(fixed, [], 'no config field may stay non-volatile')
+  assert.equal(Object.keys(dict).length, 9, 'the form is this schema: a new field is a new control')
+})
+
+test('liveConfig reads every field type live and falls back to the schema default', () => {
+  let string = '.dsh/semantics.yaml'
+  let number = 30_000
+  let enumValue = 'medium'
+  let boolean = true
+  const flags = ['duplicate-type']
+  const config = liveConfig<SemanticConfig>({
+    vocabularyPath: { get: () => string },
+    timeoutMs: { get: () => number },
+    minConfidence: { get: () => enumValue },
+    announceToAgent: { get: () => boolean },
+    detectors: { get: () => flags },
+  })
+
+  // One shape for every field: the wrapper is what makes a reader unaware of it.
+  assert.equal(config.vocabularyPath, '.dsh/semantics.yaml')
+  assert.equal(config.timeoutMs, 30_000)
+  assert.equal(config.minConfidence, 'medium')
+  assert.equal(config.announceToAgent, true)
+  assert.deepEqual(config.detectors, ['duplicate-type'])
+
+  // A volatile field is committed in place, so the next read already sees it.
+  string = 'docs/semantics.yaml'
+  number = 5_000
+  enumValue = 'high'
+  boolean = false
+  flags.push('contract-drift')
+  assert.equal(config.vocabularyPath, 'docs/semantics.yaml', 'string')
+  assert.equal(config.timeoutMs, 5_000, 'number')
+  assert.equal(config.minConfidence, 'high', 'union')
+  assert.equal(config.announceToAgent, false, 'boolean')
+  assert.deepEqual(config.detectors, ['duplicate-type', 'contract-drift'], 'array')
+
+  // A caller that sorts or pushes must not edit what the Loader committed.
+  const copy = config.detectors
+  assert.ok(copy !== config.detectors, 'every read of an array field is a fresh copy')
+  copy.length = 0
+  assert.deepEqual(config.detectors, ['duplicate-type', 'contract-drift'])
+
+  // Bare values are accepted too: a hand-mounted context passes what it has.
+  const bare = liveConfig<SemanticConfig>({
+    vocabularyPath: 'semantics.yaml',
+    announceToAgent: false,
+    detectors: ['term-unmapped'],
+  })
+  assert.equal(bare.vocabularyPath, 'semantics.yaml')
+  assert.equal(bare.announceToAgent, false)
+  assert.deepEqual(bare.detectors, ['term-unmapped'])
+
+  // A field the Loader did not pass answers with the schema default, so an
+  // absent object cannot turn a number into undefined halfway through a scan.
+  assert.equal(bare.timeoutMs, 30_000)
+  assert.equal(bare.minConfidence, 'medium')
+  assert.equal(bare.maxFiles, 50_000)
+  assert.deepEqual(bare.detectors, ['term-unmapped'])
+  const absent = liveConfig<SemanticConfig>(undefined)
+  assert.equal(absent.announceToAgent, true)
+  assert.equal(absent.citationStyle, 'file+symbol')
+  assert.deepEqual(absent.detectors, ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'])
+  assert.equal(Object.keys(absent).length, 9, 'every field is reachable, so no reader sees undefined')
 })
 
 test('VERSION stays in sync with package.json', async () => {

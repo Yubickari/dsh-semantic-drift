@@ -3,14 +3,19 @@ import test from 'node:test'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { validateConfigPatch } from '../src/config.ts'
+import { Config } from '../src/config.ts'
+import { makeSemanticRoutes } from '../src/routes.ts'
+import type { SemanticService } from '../src/service.ts'
 
 /**
- * Integration test over the BUILT host artifact (`lib/index.js`).
+ * Integration test over the BUILT host artifact (`lib/index.js`), plus the HTTP
+ * contract driven straight from `src/routes.ts`.
  *
  * The real registry validates a tool's `output.schema`, so a definition that
  * only looks right is not enough: this mounts the plugin on a minimal fake
  * context, then drives its tools and its prompt section the way the host does.
+ * The route contract is driven from the source instead: a transport change is
+ * then testable without a rebuild standing between the edit and the assertion.
  */
 
 interface FakeCtx {
@@ -361,27 +366,94 @@ test('the injection switch is written back through the Host config editor', asyn
   harness.dispose()
 })
 
-/** A config editor that records the patches it is asked to commit. */
-function recordingEditor(edits: Array<Record<string, unknown>>): Record<string, unknown> {
+/** The route table of `src/routes.ts`, driven directly: the contract is the source. */
+const WORKSPACE = '/workspace/fixture'
+
+/** What `GET /semantic-drift/state` answers, for the settings route to echo back. */
+function stateAnswer(workspace: string = WORKSPACE): Record<string, unknown> {
   return {
-    entries: () => [{ id: 'include:semantic-drift', name: 'dsh-semantic-drift' }],
-    edit: async (
-      _entry: unknown,
-      change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
-    ) => {
-      edits.push(change({ vocabularyPath: '.dsh/semantics.yaml', announceToAgent: true }, {}))
+    ok: true,
+    workspace: { path: workspace, resolvedFrom: 'request' },
+    workspaces: [],
+    vocabulary: {
+      file: `${workspace}/.dsh/semantics.yaml`,
+      relativeFile: '.dsh/semantics.yaml',
+      exists: false,
+      document: { version: 1, exclude: [], concepts: [] },
+      issues: [],
+      valid: true,
+    },
+    citationStyle: 'file+symbol',
+    minConfidence: 'medium',
+    version: '0.1.5',
+    effective: {
+      vocabularyPath: '.dsh/semantics.yaml',
+      announceToAgent: true,
+      citationStyle: 'file+symbol',
+      minConfidence: 'medium',
+      timeoutMs: 30_000,
+      maxFindings: 5_000,
+      maxFileBytes: 1_048_576,
+      maxFiles: 50_000,
+      detectors: ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'],
     },
   }
 }
 
-test('the config route reports every field the schema declares', async () => {
-  const module = await import('../lib/index.js')
-  const root = await fixture()
-  const harness = mount(root)
-  module.apply(harness.ctx, module.Config())
-  const route = harness.routes.find(entry => entry.path === '/semantic-drift/config') as Record<string, unknown>
+/**
+ * A service stand-in.
+ *
+ * These tests are about the transport: what a request may say, what a refusal
+ * says, and what the answer is shaped like. The vocabulary operations are the
+ * service's business and are covered where they live.
+ */
+function fakeService(state?: () => Promise<Record<string, unknown>>): SemanticService {
+  const unsupported = async () => {
+    throw new Error('this fake only answers `state`')
+  }
+  return {
+    listWorkspaces: () => [],
+    resolve: unsupported,
+    state: state ?? (async () => stateAnswer()),
+    scan: unsupported,
+    save: unsupported,
+    saveRaw: unsupported,
+    init: unsupported,
+    changeException: unsupported,
+    upsert: unsupported,
+  } as unknown as SemanticService
+}
+
+interface RouteOptions {
+  state?: () => Promise<Record<string, unknown>>
+  editConfig?: (patch: { announceToAgent: boolean }) => Promise<void>
+}
+
+function routesOf(options: RouteOptions = {}): Array<Record<string, unknown>> {
+  const hooks = options.editConfig === undefined ? {} : { editConfig: options.editConfig }
+  return makeSemanticRoutes(
+    fakeService(options.state),
+    () => ({ version: '0.1.5' }),
+    hooks,
+  ) as unknown as Array<Record<string, unknown>>
+}
+
+function routeOf(routes: Array<Record<string, unknown>>, path: string): Record<string, unknown> {
+  const route = routes.find(entry => entry.path === path)
+  assert.ok(route !== undefined, `${path} must be registered`)
+  return route as Record<string, unknown>
+}
+
+test('the config route is the field table and nothing else', async () => {
+  const route = routeOf(routesOf(), '/semantic-drift/config')
   const answer = await callRoute(route, 'GET')
   assert.equal(answer.status, 200)
+  // No values: every field is volatile, so DSH renders the form and holds what
+  // is in force. A second copy of the values here could only disagree with it.
+  assert.deepEqual(Object.keys(answer.json).sort(), ['fields', 'ok', 'version'])
+  assert.equal(answer.json.ok, true)
+  assert.equal(answer.json.version, '0.1.5')
+
   const fields = answer.json.fields as Array<{
     name: string
     kind: string
@@ -395,11 +467,9 @@ test('the config route reports every field the schema declares', async () => {
   // schema is described here without a second list to keep in step.
   assert.deepEqual(
     fields.map(field => field.name).sort(),
-    Object.keys(module.Config.dict).sort(),
+    Object.keys(Config.dict).sort(),
     'the field set must be the schema itself',
   )
-  const values = answer.json.values as Record<string, unknown>
-  assert.deepEqual(Object.keys(values).sort(), Object.keys(module.Config.dict).sort())
   const byName = new Map(fields.map(field => [field.name, field]))
   assert.equal(byName.get('vocabularyPath')?.kind, 'string')
   assert.equal(byName.get('announceToAgent')?.kind, 'boolean')
@@ -417,165 +487,99 @@ test('the config route reports every field the schema declares', async () => {
   for (const field of fields) {
     assert.equal(typeof field.description, 'string', `${field.name} must carry its schema description`)
   }
-  assert.equal(values.vocabularyPath, '.dsh/semantics.yaml')
-  assert.equal(values.announceToAgent, true)
-  assert.equal(answer.json.version, module.VERSION)
+
   const wrongMethod = await callRoute(route, 'POST', {})
   assert.equal(wrongMethod.status, 405, 'the config route is read-only')
   const crossSite = await callRoute(route, 'GET', undefined, { 'sec-fetch-site': 'cross-site' })
   assert.equal(crossSite.status, 403, 'a foreign page may not read the settings form')
-  harness.dispose()
 })
 
-test('the settings route refuses a patch the schema does not allow', async () => {
-  const module = await import('../lib/index.js')
-  const root = await fixture()
-  const edits: Array<Record<string, unknown>> = []
-  const harness = mount(root, { configEditor: recordingEditor(edits) })
-  module.apply(harness.ctx, module.Config())
-  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+test('the settings route accepts the switch alone and refuses a patch', async () => {
+  const edits: Array<{ announceToAgent: boolean }> = []
+  const route = routeOf(routesOf({ editConfig: async patch => { edits.push(patch) } }), '/semantic-drift/settings')
 
-  const unknownKey = await callRoute(route, 'POST', { workspace: root, patch: { nonsense: 1 } })
-  assert.equal(unknownKey.status, 400)
-  assert.equal(unknownKey.json.code, 'bad-request')
-  assert.match(String(unknownKey.json.message), /nonsense/, 'the refusal must name the key')
+  // Retired, not ignored: a request that still sends a patch is told where the
+  // setting lives now, instead of being applied behind DSH's own form.
+  const patched = await callRoute(route, 'POST', { workspace: WORKSPACE, patch: { timeoutMs: 10_000 } })
+  assert.equal(patched.status, 400)
+  assert.equal(patched.json.code, 'bad-request')
+  assert.match(String(patched.json.message), /patch/)
+  assert.match(String(patched.json.message), /Plugins → Installed Plugins → this plugin → Configuration/, 'the refusal must say where to go instead')
 
-  const outOfRange = await callRoute(route, 'POST', { workspace: root, patch: { timeoutMs: 10 } })
-  assert.equal(outOfRange.status, 400)
-  assert.match(String(outOfRange.json.message), /timeoutMs/)
-  assert.match(String(outOfRange.json.message), /1000/, 'the schema bound is what refuses it')
-
-  // The schema answers null with the field default, so a null patch would look
-  // like a successful write that silently discarded the configured value.
-  const nullNumber = await callRoute(route, 'POST', { workspace: root, patch: { timeoutMs: null } })
-  assert.equal(nullNumber.status, 400)
-  assert.match(String(nullNumber.json.message), /timeoutMs/, 'the refusal must name the nulled field')
-  assert.match(String(nullNumber.json.message), /null/)
-
-  const nullFlags = await callRoute(route, 'POST', { workspace: root, patch: { detectors: null } })
-  assert.equal(nullFlags.status, 400)
-  assert.match(String(nullFlags.json.message), /detectors/)
-
-  const badEnum = await callRoute(route, 'POST', { workspace: root, patch: { citationStyle: 'file:lines' } })
-  assert.equal(badEnum.status, 400)
-  assert.match(String(badEnum.json.message), /citationStyle/)
-
-  const badFlags = await callRoute(route, 'POST', { workspace: root, patch: { detectors: ['nonsense'] } })
-  assert.equal(badFlags.status, 400)
-
-  const notAnObject = await callRoute(route, 'POST', { workspace: root, patch: ['timeoutMs'] })
-  assert.equal(notAnObject.status, 400)
-
-  const badAnnounce = await callRoute(route, 'POST', { workspace: root, announceToAgent: 'yes' })
-  assert.equal(badAnnounce.status, 400)
-  assert.match(String(badAnnounce.json.message), /announceToAgent/)
-
-  const reference = await callRoute(route, 'POST', {
-    workspace: root,
-    patch: { announceToAgent: { get: () => false } },
+  const mixed = await callRoute(route, 'POST', {
+    workspace: WORKSPACE,
+    announceToAgent: false,
+    patch: { minConfidence: 'high' },
   })
-  assert.equal(reference.status, 400, 'a patch carries values, not live references')
+  assert.equal(mixed.status, 400, 'a request carrying the retired member is refused whole, never half applied')
+  assert.match(String(mixed.json.message), /patch/)
 
-  const nothing = await callRoute(route, 'POST', { workspace: root })
-  assert.equal(nothing.status, 400, 'one of the two members is required')
+  const notBoolean = await callRoute(route, 'POST', { workspace: WORKSPACE, announceToAgent: 'yes' })
+  assert.equal(notBoolean.status, 400)
+  assert.match(String(notBoolean.json.message), /announceToAgent/)
 
-  const crossSite = await callRoute(route, 'POST', { workspace: root, announceToAgent: false }, {
+  const missing = await callRoute(route, 'POST', { workspace: WORKSPACE })
+  assert.equal(missing.status, 400, 'the member is required, so "no switch" is not a write')
+
+  const crossSite = await callRoute(route, 'POST', { workspace: WORKSPACE, announceToAgent: false }, {
     'sec-fetch-site': 'cross-site',
   })
   assert.equal(crossSite.status, 403, 'a foreign page may not write the plugin row')
 
+  const wrongMethod = await callRoute(route, 'GET')
+  assert.equal(wrongMethod.status, 405)
+
   assert.equal(edits.length, 0, 'a refused request must reach no config editor')
-  harness.dispose()
 })
 
-test('the settings route writes a patch and the switch in one edit and echoes it', async () => {
-  const module = await import('../lib/index.js')
-  const root = await fixture()
+test('the switch is written as a plain boolean and answered in both shapes', async () => {
   const edits: Array<Record<string, unknown>> = []
-  const harness = mount(root, { configEditor: recordingEditor(edits) })
-  module.apply(harness.ctx, module.Config())
-  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
+  const route = routeOf(routesOf({
+    editConfig: async patch => { edits.push(patch as unknown as Record<string, unknown>) },
+  }), '/semantic-drift/settings')
 
-  const both = await callRoute(route, 'POST', {
-    workspace: root,
-    announceToAgent: false,
-    patch: { minConfidence: 'high', detectors: ['contract-drift'] },
-  })
-  assert.equal(both.status, 200)
-  assert.equal(edits.length, 1, 'one request is one write, so the row cannot be left half applied')
-  assert.deepEqual(both.json.applied, {
-    minConfidence: 'high',
-    detectors: ['contract-drift'],
-    announceToAgent: false,
-  })
-  // The fake editor commits nothing, which is exactly the case the echo exists
-  // for: the answering instance still reports the value it was mounted with.
-  const state = both.json.effective as Record<string, unknown>
-  assert.equal(state.announceToAgent, true, 'the state is read from the instance that answered')
-  assert.equal(both.json.ok, true)
-
-  const echo = await callRoute(route, 'POST', { announceToAgent: true })
+  // No workspace: the echo alone, and no state read to fail on.
+  const echo = await callRoute(route, 'POST', { announceToAgent: false })
   assert.equal(echo.status, 200)
-  assert.deepEqual(echo.json, { ok: true, applied: { announceToAgent: true } }, 'no workspace, no state read')
-  harness.dispose()
-})
-
-test('a validated patch holds plain values, never a live reference', () => {
-  // A volatile field validates into `{ get() }`, and that reference has no YAML
-  // representation: it must not survive the validator.
-  const validated = validateConfigPatch({ announceToAgent: false })
-  assert.equal(validated.ok, true)
-  if (!validated.ok) return
-  assert.equal(validated.value.announceToAgent, false)
-  assert.equal(typeof validated.value.announceToAgent, 'boolean')
-
-  for (const candidate of [null, undefined]) {
-    const refused = validateConfigPatch({ timeoutMs: candidate })
-    assert.equal(refused.ok, false, 'null must be refused, not answered with the default')
-    if (refused.ok) continue
-    assert.match(refused.message, /timeoutMs/)
-    assert.match(refused.message, /null/)
-  }
-})
-
-test('the volatile switch is written as a plain boolean, whichever member carries it', async () => {
-  const module = await import('../lib/index.js')
-  const root = await fixture()
-  const edits: Array<Record<string, unknown>> = []
-  const harness = mount(root, { configEditor: recordingEditor(edits) })
-  module.apply(harness.ctx, module.Config())
-  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
-
-  const viaPatch = await callRoute(route, 'POST', { workspace: root, patch: { announceToAgent: false } })
-  assert.equal(viaPatch.status, 200)
+  assert.deepEqual(echo.json, { ok: true, applied: { announceToAgent: false } })
   assert.equal(edits.length, 1)
-  assert.equal(edits[0].announceToAgent, false, 'the profile write is handed a value, not a reference')
+  assert.deepEqual(edits[0], { announceToAgent: false })
+  // A volatile field is a live reference in memory; what reaches the profile
+  // serializer is the value, and a reference there is unrepresentable.
   assert.equal(typeof edits[0].announceToAgent, 'boolean')
-  assert.deepEqual(viaPatch.json.applied, { announceToAgent: false })
-  assert.equal(typeof (viaPatch.json.applied as Record<string, unknown>).announceToAgent, 'boolean')
 
-  // Naming the switch in both members is still one write, and the top-level
-  // member wins: that is the member the first callers of this route send.
-  const both = await callRoute(route, 'POST', {
-    workspace: root,
-    announceToAgent: true,
-    patch: { announceToAgent: false },
-  })
-  assert.equal(both.status, 200)
-  assert.equal(edits.length, 2, 'one write per request')
-  assert.equal(edits[1].announceToAgent, true, 'the top-level member takes precedence over the patch')
-  assert.deepEqual(both.json.applied, { announceToAgent: true })
-  harness.dispose()
+  // With a workspace: the state the panel consumes, plus the authoritative echo.
+  const withState = await callRoute(route, 'POST', { workspace: WORKSPACE, announceToAgent: true })
+  assert.equal(withState.status, 200)
+  assert.equal(withState.json.ok, true)
+  assert.deepEqual(withState.json.applied, { announceToAgent: true })
+  assert.equal(
+    (withState.json.workspace as Record<string, unknown>).path,
+    WORKSPACE,
+    'the answer is the state of the workspace the request named',
+  )
+  assert.ok(withState.json.effective !== undefined, 'and it carries what is in force')
+  assert.equal(edits.length, 2, 'one request is one write')
+})
+
+test('a state read that fails does not fail the write it followed', async () => {
+  const edits: Array<{ announceToAgent: boolean }> = []
+  const route = routeOf(routesOf({
+    state: async () => {
+      throw new Error('the workspace registry is down')
+    },
+    editConfig: async patch => { edits.push(patch) },
+  }), '/semantic-drift/settings')
+
+  const answer = await callRoute(route, 'POST', { workspace: WORKSPACE, announceToAgent: false })
+  assert.equal(answer.status, 200, 'the write already happened; a failed read is not a failed write')
+  assert.deepEqual(answer.json, { ok: true, applied: { announceToAgent: false } })
+  assert.equal(edits.length, 1)
 })
 
 test('without a config editor the switch is refused with a pointer to the settings form', async () => {
-  const module = await import('../lib/index.js')
-  const root = await fixture()
-  const harness = mount(root)
-  module.apply(harness.ctx, module.Config())
-  const route = harness.routes.find(entry => entry.path === '/semantic-drift/settings') as Record<string, unknown>
-  const refused = await callRoute(route, 'POST', { workspace: root, announceToAgent: false })
+  const route = routeOf(routesOf(), '/semantic-drift/settings')
+  const refused = await callRoute(route, 'POST', { workspace: WORKSPACE, announceToAgent: false })
   assert.equal(refused.status, 501)
-  assert.match(String(refused.json.message), /Settings → Plugins/)
-  harness.dispose()
+  assert.match(String(refused.json.message), /Plugins → Installed Plugins → this plugin → Configuration/)
 })

@@ -240,7 +240,7 @@ export type ConfigFieldKind = 'string' | 'number' | 'boolean' | 'enum' | 'flags'
 
 /** One field of `Config.dict`, described for the settings form. */
 export interface ConfigField {
-  /** Key in `Config.dict`; the same key `values` and a patch use. */
+  /** Key in `Config.dict`; DSH's own settings form edits this same key. */
   name: string
   kind: ConfigFieldKind
   /** The schema's own description; absent when a field declares none. */
@@ -252,26 +252,28 @@ export interface ConfigField {
   options?: string[]
 }
 
-/** `GET /semantic-drift/config` payload: what is in force, and what may be written. */
+/**
+ * `GET /semantic-drift/config` payload: the form's field table.
+ *
+ * No values: every field is volatile, so DSH renders the editable form and holds
+ * the values, and the panel reads what is in force from `state.effective`.
+ */
 export interface ConfigResponse {
   ok: true
   version: string
-  /** Current effective values, keyed exactly like `Config.dict`. */
-  values: Record<string, unknown>
   fields: ConfigField[]
 }
 
 /**
- * `POST /semantic-drift/settings` payload: one write channel for every field.
+ * `POST /semantic-drift/settings` payload.
  *
- * `announceToAgent` stays a top-level member because the original callers only
- * ever sent that; `patch` carries any other field.
+ * One member only: the prompt switch. Everything else is edited in DSH's own
+ * settings form, which a volatile field makes possible; `patch` is retired and
+ * refused, so a caller cannot write a field behind that form's back.
  */
 export interface SettingsRequest {
   workspace?: string
-  announceToAgent?: boolean
-  /** Field patches, keyed like `Config.dict`. */
-  patch?: Record<string, unknown>
+  announceToAgent: boolean
 }
 
 /**
@@ -279,19 +281,19 @@ export interface SettingsRequest {
  *
  * Still a full {@link StateResponse}, because that is what this route has always
  * answered and what the panel consumes; `applied` rides along because the row
- * may reload around the write, so the values this request actually wrote are the
+ * may reload around the write, so the value this request actually wrote is the
  * only authoritative part of the answer. A caller therefore prefers
  * `applied.announceToAgent` and falls back to `effective.announceToAgent`.
  */
 export type SettingsResponse = StateResponse & {
-  /** Key/value pairs this request wrote; absent when they could not be read back. */
-  applied?: Record<string, unknown>
+  /** The value this request wrote; absent when the state could not be read back. */
+  applied?: { announceToAgent: boolean }
 }
 
 /** The same answer when the request named no workspace: the echo alone. */
 export interface SettingsEcho {
   ok: true
-  applied: Record<string, unknown>
+  applied: { announceToAgent: boolean }
 }
 
 /** One selectable workspace. */

@@ -19,7 +19,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { Config, announceEnabled, liveValue } from './config.ts'
+import { Config, announceEnabled, liveConfig } from './config.ts'
 import type { Volatile } from './config.ts'
 import { PROMPT_SECTION, PROMPT_SECTION_ORDER, buildPromptText } from './prompt.ts'
 import { PACKAGE_NAME, ROW_ID } from './protocol.ts'
@@ -59,8 +59,8 @@ interface PluginContext {
   logger?(name: string): { info(message: string): void; warn(message: string): void }
 }
 
-/** Config as it arrives from the Loader. */
-type LoaderConfig = SemanticConfig
+/** Config as it arrives from the Loader: live references, one per volatile field. */
+type LoaderConfig = Record<string, Volatile<unknown>>
 
 const CONSOLE_LOGGER = (name: string) => ({
   info: (message: string) => console.info(`[${name}] ${message}`),
@@ -107,22 +107,12 @@ function loggerOf(ctx: PluginContext, name: string): { info(message: string): vo
  */
 export function apply(ctx: Context, rawConfig: LoaderConfig): void {
   const context = ctx as unknown as PluginContext
-  const config = rawConfig as unknown as SemanticConfig
+  // Every field is volatile, so the Loader hands over live references. Reading
+  // them through one wrapper is what makes tools, routes and the prompt see a
+  // settings change in place, without the row being reloaded.
+  const config = liveConfig<SemanticConfig>(rawConfig)
   const log = loggerOf(context, PACKAGE_NAME)
 
-  /**
-   * Effective values, one per `Config.dict` key.
-   *
-   * Derived from the schema rather than hand-listed: a new field is reported
-   * without touching this function, and a removed one cannot linger here. Read
-   * per call, so a volatile field answers with what is true now.
-   */
-  const configValues = (): Record<string, unknown> => {
-    const source = config as unknown as Record<string, Volatile<unknown>>
-    const values: Record<string, unknown> = {}
-    for (const name of Object.keys(Config.dict)) values[name] = liveValue(source[name])
-    return values
-  }
   /** What this activation actually mounted, reported by `/semantic-drift/health`. */
   const health: { tools: number; routes: number; prompt: boolean } = { tools: 0, routes: 0, prompt: false }
 
@@ -197,7 +187,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
       editor = undefined
     }
     if (editor === undefined) {
-      throw new SemanticError('unsupported', 'This Host exposes no config editor; edit the plugin row under Settings → Plugins.')
+      throw new SemanticError('unsupported', 'This Host exposes no config editor; edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration.')
     }
     const withConfig = editor.configuration?.() ?? []
     const entry = withConfig.map(item => item.entry).find(isOurEntry) ?? editor.entries().find(isOurEntry)
@@ -205,7 +195,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
       const seen = (editor.entries() ?? []).map(candidate => candidate.name ?? candidate.id).slice(0, 6)
       throw new SemanticError(
         'unsupported',
-        `${PACKAGE_NAME} is not a Loader entry in this profile (saw: ${seen.join(', ') || 'none'}); edit it under Settings → Plugins.`,
+        `${PACKAGE_NAME} is not a Loader entry in this profile (saw: ${seen.join(', ') || 'none'}); edit it under Plugins → Installed Plugins → this plugin → Configuration.`,
       )
     }
     await editor.edit(entry, current => ({ ...current, ...patch }))
@@ -225,7 +215,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
           tools: health.tools,
           routes: health.routes,
           promptSection: health.prompt,
-        }), { editConfig: editPluginConfig, configValues })) disposers.push(webServer.register(route))
+        }), { editConfig: editPluginConfig })) disposers.push(webServer.register(route))
       } catch (error) {
         for (const dispose of disposers) {
           try {
