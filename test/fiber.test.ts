@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -293,6 +294,19 @@ test('announceToAgent=false keeps the section registered and lets it say nothing
   harness.dispose()
 })
 
+test('a workspace override silences only that workspace', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config({
+    announceByWorkspace: { [realpathSync(root)]: false },
+  }))
+  assert.equal(harness.sections.length, 1, 'the section stays mounted for other workspaces')
+  assert.equal(promptText(harness.sections[0]), '', 'this workspace is explicitly off')
+  assert.equal(callHealth(harness).announceToAgent, true, 'health reports the default, not one override')
+  harness.dispose()
+})
+
 test('a volatile switch is read live, without remounting the row', async () => {
   const module = await import('../lib/index.js')
   const root = await fixture()
@@ -357,7 +371,8 @@ test('the injection switch is written back through the Host config editor', asyn
   assert.equal(applied.status, 200)
   assert.equal(edits.length, 1)
   const next = edits[0].next
-  assert.equal(next.announceToAgent, false)
+  assert.deepEqual(next.announceByWorkspace, { [realpathSync(root)]: false }, 'the workspace override is written into the map')
+  assert.equal(next.announceToAgent, true, 'the global default is left alone')
   assert.equal(next.vocabularyPath, '.dsh/semantics.yaml', 'the rest of the row config must survive the patch')
   const state = applied.json as Record<string, unknown>
   assert.equal(state.ok, true)
@@ -413,7 +428,7 @@ function fakeService(state?: () => Promise<Record<string, unknown>>): SemanticSe
   }
   return {
     listWorkspaces: () => [],
-    resolve: unsupported,
+    resolve: async requested => ({ path: requested ?? WORKSPACE, resolvedFrom: 'request' }),
     state: state ?? (async () => stateAnswer()),
     scan: unsupported,
     save: unsupported,
@@ -427,10 +442,14 @@ function fakeService(state?: () => Promise<Record<string, unknown>>): SemanticSe
 interface RouteOptions {
   state?: () => Promise<Record<string, unknown>>
   editConfig?: (patch: { announceToAgent: boolean }) => Promise<void>
+  editWorkspaceAnnounce?: (workspace: string, enabled: boolean) => Promise<void>
 }
 
 function routesOf(options: RouteOptions = {}): Array<Record<string, unknown>> {
-  const hooks = options.editConfig === undefined ? {} : { editConfig: options.editConfig }
+  const hooks = {
+    ...(options.editConfig === undefined ? {} : { editConfig: options.editConfig }),
+    ...(options.editWorkspaceAnnounce === undefined ? {} : { editWorkspaceAnnounce: options.editWorkspaceAnnounce }),
+  }
   return makeSemanticRoutes(
     fakeService(options.state),
     () => ({ version: '0.1.5' }),
@@ -464,11 +483,12 @@ test('the config route is the field table and nothing else', async () => {
     max?: number
   }>
   // The whole point of deriving the form from Config.dict: a field added to the
-  // schema is described here without a second list to keep in step.
+  // schema is described here without a second list to keep in step. The
+  // per-workspace override map is panel-owned and deliberately not a form row.
   assert.deepEqual(
     fields.map(field => field.name).sort(),
-    Object.keys(Config.dict).sort(),
-    'the field set must be the schema itself',
+    Object.keys(Config.dict).filter(name => name !== 'announceByWorkspace').sort(),
+    'the field set must be the schema itself, minus panel-owned fields',
   )
   const byName = new Map(fields.map(field => [field.name, field]))
   assert.equal(byName.get('vocabularyPath')?.kind, 'string')
@@ -530,6 +550,18 @@ test('the settings route accepts the switch alone and refuses a patch', async ()
   assert.equal(wrongMethod.status, 405)
 
   assert.equal(edits.length, 0, 'a refused request must reach no config editor')
+})
+
+test('a named workspace uses the workspace announce hook', async () => {
+  const writes: Array<{ workspace: string; enabled: boolean }> = []
+  const route = routeOf(routesOf({
+    editWorkspaceAnnounce: async (workspace, enabled) => { writes.push({ workspace, enabled }) },
+  }), '/semantic-drift/settings')
+
+  const answer = await callRoute(route, 'POST', { workspace: WORKSPACE, announceToAgent: false })
+  assert.equal(answer.status, 200)
+  assert.deepEqual(writes, [{ workspace: WORKSPACE, enabled: false }], 'the workspace goes to the map writer, not the global default')
+  assert.deepEqual(answer.json.applied, { announceToAgent: false })
 })
 
 test('the switch is written as a plain boolean and answered in both shapes', async () => {

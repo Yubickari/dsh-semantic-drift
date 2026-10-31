@@ -14,6 +14,7 @@
  * @module dsh-semantic-drift/workspace
  */
 
+import { realpathSync } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
 import type { WorkspaceOption } from './protocol.ts'
@@ -23,6 +24,21 @@ export interface WorkspaceTarget {
   path: string
   title?: string
   resolvedFrom: 'request' | 'session' | 'default'
+}
+
+/**
+ * Canonical key for a workspace-scoped setting.
+ *
+ * The panel stores the resolved path while the prompt section sees registry
+ * paths; keying both on the real path keeps a symlinked workspace one entry.
+ * @param path - a workspace path.
+ */
+export function workspaceKey(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return resolve(path)
+  }
 }
 
 /** A workspace request the plugin refuses. */

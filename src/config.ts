@@ -39,7 +39,13 @@ export const Config = z.object({
     .boolean()
     .default(true)
     .volatile()
-    .description('Inject the vocabulary into every agent prompt. Turn off to keep the plugin silent in prompts.'),
+    .description('Default for workspaces without their own prompt-injection choice. Turn off to keep the plugin silent in prompts.'),
+
+  announceByWorkspace: z
+    .dict(z.boolean())
+    .default({})
+    .volatile()
+    .description('Per-workspace prompt-injection overrides, keyed by canonical workspace path. The panel writes this; the Configuration form hides it.'),
 
   citationStyle: z
     .union([...CITATION_STYLES])
@@ -107,10 +113,24 @@ export function liveValue<T>(value: Volatile<T> | undefined): T | undefined {
 }
 
 /**
- * Whether the prompt section announces the vocabulary.
- * @param value - the `announceToAgent` field in either shape; absent means on.
+ * Whether the prompt section announces one workspace's vocabulary.
+ *
+ * A workspace override wins; otherwise the `announceToAgent` default decides.
+ * The key is the canonical workspace path, which is what the panel stores.
+ *
+ * @param value - the `announceToAgent` default in either shape; absent means on.
+ * @param overrides - the `announceByWorkspace` map in either shape.
+ * @param workspacePath - canonical workspace path, when one is known.
  */
-export function announceEnabled(value: Volatile<boolean> | undefined): boolean {
+export function announceEnabled(
+  value: Volatile<boolean> | undefined,
+  overrides?: Volatile<Record<string, boolean>> | undefined,
+  workspacePath?: string,
+): boolean {
+  if (workspacePath !== undefined) {
+    const explicit = (liveValue(overrides) ?? {})[workspacePath]
+    if (typeof explicit === 'boolean') return explicit
+  }
   return liveValue(value ?? true) !== false
 }
 
@@ -192,9 +212,14 @@ function describeField(name: string, field: SchemaField): ConfigField {
   }
 }
 
+/** Fields the panel owns; they still exist on the row but not in its form. */
+const PANEL_OWNED_FIELDS = new Set(['announceByWorkspace'])
+
 /** The field table of the settings form, in declaration order. */
 export function configFields(): ConfigField[] {
   const dict = Config.dict as unknown as Record<string, SchemaField>
-  return Object.entries(dict).map(([name, field]) => describeField(name, field))
+  return Object.entries(dict)
+    .filter(([name]) => !PANEL_OWNED_FIELDS.has(name))
+    .map(([name, field]) => describeField(name, field))
 }
 

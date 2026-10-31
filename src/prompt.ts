@@ -16,9 +16,11 @@
 import { readFileSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
+import { announceEnabled } from './config.ts'
 import type { ConceptKind } from './protocol.ts'
 import { CONCEPT_KINDS, DEFAULT_VOCABULARY_PATH } from './protocol.ts'
 import type { SemanticConfig } from './service.ts'
+import { workspaceKey } from './workspace.ts'
 import type { WorkspaceResolver } from './workspace.ts'
 
 /** Stable section name; a scoped section with this name shadows the global one. */
@@ -155,6 +157,9 @@ export function buildPromptText(ctx: unknown, config: SemanticConfig, workspace:
   let body: string[]
   try {
     const { file, workspacePath } = vocabularyFileFor(ctx, config, workspace)
+    // The panel writes one override per workspace; only this workspace's
+    // vocabulary may be injected, so the default is a fallback, never a veto.
+    if (!announceEnabled(config.announceToAgent, config.announceByWorkspace, workspaceKey(workspacePath))) return ''
     const lines = conceptLines(file)
     if (lines.kind === 'missing') {
       body = [
@@ -175,6 +180,8 @@ export function buildPromptText(ctx: unknown, config: SemanticConfig, workspace:
       }
     }
   } catch {
+    // The workspace could not be resolved: fall back to the global default.
+    if (!announceEnabled(config.announceToAgent)) return ''
     body = ['', 'The vocabulary file could not be read; call `semantic_list` to check it.']
   }
   const all = [...header, ...body]

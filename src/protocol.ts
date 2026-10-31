@@ -219,6 +219,7 @@ export interface VocabularyState {
 /** Settings the panel shows read-only, because DSH owns their editable form. */
 export interface EffectiveConfig {
   vocabularyPath: string
+  /** The current workspace's prompt-injection choice. */
   announceToAgent: boolean
   citationStyle: CitationStyle
   minConfidence: Confidence
@@ -267,9 +268,11 @@ export interface ConfigResponse {
 /**
  * `POST /semantic-drift/settings` payload.
  *
- * One member only: the prompt switch. Everything else is edited in DSH's own
- * settings form, which a volatile field makes possible; `patch` is retired and
- * refused, so a caller cannot write a field behind that form's back.
+ * One member only: the prompt switch. With `workspace`, it is that workspace's
+ * override; without one, the global default is written (kept for older callers).
+ * Everything else is edited in DSH's own settings form, which a volatile field
+ * makes possible; `patch` is retired and refused, so a caller cannot write a
+ * field behind that form's back.
  */
 export interface SettingsRequest {
   workspace?: string

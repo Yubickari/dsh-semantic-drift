@@ -75,6 +75,7 @@ const { configFields } = await import('../src/config.ts')
 const VALUES = {
   vocabularyPath: '.dsh/semantics.yaml',
   announceToAgent: true,
+  announceByWorkspace: {},
   citationStyle: 'file+symbol',
   minConfidence: 'medium',
   timeoutMs: 30000,
@@ -84,7 +85,7 @@ const VALUES = {
   detectors: ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'],
 }
 
-/** Nine fields, exactly what configFields() derives from Config.dict. */
+/** Nine form fields; the per-workspace prompt map is panel-owned and hidden. */
 const CONFIG = {
   ok: true,
   version: '0.1.5',

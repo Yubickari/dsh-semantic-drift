@@ -47,6 +47,8 @@ export interface SemanticConfig {
    * reloading the row: this may be a live reference, read it as a value.
    */
   announceToAgent: Volatile<boolean>
+  /** Per-workspace overrides for `announceToAgent`, keyed by canonical path. */
+  announceByWorkspace: Volatile<Record<string, boolean>>
   citationStyle: 'file+symbol' | 'file:line'
   minConfidence: Confidence
   timeoutMs: number
@@ -188,7 +190,7 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
       version: options.version,
       effective: {
         vocabularyPath: relativePath(),
-        announceToAgent: announceEnabled(config.announceToAgent),
+        announceToAgent: announceEnabled(config.announceToAgent, config.announceByWorkspace, target.path),
         citationStyle: config.citationStyle,
         minConfidence: config.minConfidence,
         timeoutMs: config.timeoutMs,
