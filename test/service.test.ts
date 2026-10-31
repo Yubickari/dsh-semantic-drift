@@ -14,6 +14,7 @@ function config(): SemanticConfig {
   return {
     vocabularyPath: '.dsh/semantics.yaml',
     announceToAgent: true,
+    announceByWorkspace: {},
     citationStyle: 'file+symbol',
     minConfidence: 'medium',
     timeoutMs: 10_000,
@@ -327,6 +328,9 @@ test('the volatile reference is unwrapped, never compared', () => {
   assert.equal(announceEnabled({ get: () => on }), true, 'the reference is read at use time')
   assert.equal(announceEnabled(true), true)
   assert.equal(announceEnabled(undefined), true, 'an absent field means on')
+  assert.equal(announceEnabled(true, { '/a': false }, '/a'), false, 'a workspace override wins')
+  assert.equal(announceEnabled(true, { '/a': false }, '/b'), true, 'another workspace keeps the default')
+  assert.equal(announceEnabled(false, { '/a': true }, '/a'), true, 'an override can also turn it on')
   assert.equal(liveValue({ get: () => 'value' }), 'value')
   assert.equal(liveValue('value'), 'value', 'a plain value passes through untouched')
 })
@@ -340,7 +344,7 @@ test('every config field is volatile, which is what DSH renders a form from', ()
     .filter(([, field]) => field.meta?.volatile !== true)
     .map(([name]) => name)
   assert.deepEqual(fixed, [], 'no config field may stay non-volatile')
-  assert.equal(Object.keys(dict).length, 9, 'the form is this schema: a new field is a new control')
+  assert.equal(Object.keys(dict).length, 10, 'nine form fields plus the hidden per-workspace map')
 })
 
 test('liveConfig reads every field type live and falls back to the schema default', () => {
@@ -402,7 +406,7 @@ test('liveConfig reads every field type live and falls back to the schema defaul
   assert.equal(absent.announceToAgent, true)
   assert.equal(absent.citationStyle, 'file+symbol')
   assert.deepEqual(absent.detectors, ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'])
-  assert.equal(Object.keys(absent).length, 9, 'every field is reachable, so no reader sees undefined')
+  assert.equal(Object.keys(absent).length, 10, 'every field is reachable, so no reader sees undefined')
 })
 
 test('VERSION stays in sync with package.json', async () => {

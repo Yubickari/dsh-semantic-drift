@@ -53,4 +53,13 @@ for (const file of ['README.md', 'README.zh.md']) {
       assert.ok(text.includes(`\`${rule}\``), `${file} does not document the ${rule} rule`)
     }
   })
+
+  test(`${file} documents the feedback channels`, () => {
+    const text = readFileSync(join(import.meta.dirname, '..', file), 'utf8')
+    assert.match(text, /Feedback channels|提示通道/, `${file} needs the channel overview`)
+    assert.match(text, /Banner|横幅/, `${file} does not mention persistent banners`)
+    assert.match(text, /Validation issue|校验问题/, `${file} does not mention inline validation`)
+    assert.match(text, /Footer badge|底栏徽标/, `${file} does not mention footer badges`)
+    assert.doesNotMatch(text, /\| Toast \|/, `${file} still documents a removed toast channel`)
+  })
 }

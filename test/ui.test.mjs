@@ -11,7 +11,7 @@ import { createElement } from 'react'
  * Render tests for the panel's pieces.
  *
  * These exist because the panel is only verifiable in a browser otherwise: the
- * editor's validation feedback, the notice bar's controls and the tree's add
+ * editor's validation feedback, the feedback banner's controls and the tree's add
  * buttons are all markup that a failed save depends on being visible.
  */
 
@@ -131,25 +131,53 @@ test('the editor renders no issue block when the save had no issues', () => {
   assert.match(html, /sensor\.sensor_rate/)
 })
 
-test('the notice puts the close control last, aligns it, and lists issues', () => {
-  const html = render(createElement(ui.Notice, {
-    notice: { kind: 'error', text: '保存失败：词表校验未通过', issues: [duplicateIssue] },
-    onDismiss: () => undefined,
+test('the editor marks exactly the four required fields', () => {
+  const html = render(createElement(ui.ConceptEditor, {
+    concept: undefined,
+    issues: [],
+    saving: false,
+    onSave: () => undefined,
+    onCancel: () => undefined,
   }))
-  assert.match(html, /sd-notice-close/, 'the close control must exist')
-  assert.match(html, /规范符号重复/)
-  const head = /<div class="sd-notice-head"[^>]*>(.*?)<\/div>/.exec(html)?.[1] ?? ''
-  assert.match(head, /sd-notice-text[\s\S]*sd-notice-close/, 'text first, close last')
-  assert.match(html, /双击关闭/, 'the dismiss hint must be in the tooltip')
+  assert.equal((html.match(/class="sd-required"/g) ?? []).length, 4, 'one dark-red mark per required field')
+  assert.equal((html.match(/aria-required="true"/g) ?? []).length, 4, 'the same four controls say so to assistive tech')
+  for (const id of ['sd-id', 'sd-terms', 'sd-kind', 'sd-symbol']) {
+    const tag = new RegExp(`<(?:input|select)[^>]*id="${id}"[^>]*>`).exec(html)?.[0] ?? ''
+    assert.match(tag, /aria-required="true"/, `${id} must be required`)
+  }
+  for (const id of ['sd-type', 'sd-unit', 'sd-note']) {
+    const tag = new RegExp(`<(?:input|textarea)[^>]*id="${id}"[^>]*>`).exec(html)?.[0] ?? ''
+    assert.doesNotMatch(tag, /aria-required="true"/, `${id} stays optional`)
+  }
 })
 
-test('a failed load offers a retry control', () => {
-  const html = render(createElement(ui.Notice, {
-    notice: { kind: 'error', text: '加载失败：连不上宿主进程' },
+test('a banner is persistent page state with an action', () => {
+  const html = render(createElement(ui.Banner, {
+    kind: 'info',
+    action: createElement('button', null, '重新扫描'),
+  }, createElement('span', null, '尚未扫描')))
+  assert.match(html, /class="sd-banner"/)
+  assert.match(html, /data-kind="info"/)
+  assert.match(html, /sd-banner-body/)
+  assert.match(html, /sd-banner-action/)
+  assert.match(html, /重新扫描/)
+})
+
+test('an error banner carries a retry action, a close control and its issues', () => {
+  const html = render(createElement(ui.Banner, {
+    kind: 'error',
     onDismiss: () => undefined,
-    onRetry: () => undefined,
-  }))
+    action: createElement('button', null, '重试'),
+  },
+  createElement('div', null, '加载失败：连不上宿主进程'),
+  createElement(ui.IssueList, { issues: [duplicateIssue] }),
+  ))
+  assert.match(html, /data-kind="error"/)
+  assert.match(html, /role="alert"/)
+  assert.match(html, /连不上宿主进程/)
+  assert.match(html, /规范符号重复/)
   assert.match(html, /重试/)
+  assert.match(html, /aria-label="关闭"/, 'an operation error must be dismissible')
 })
 
 test('the tree has a header add button and one per group', () => {
@@ -275,4 +303,36 @@ test('the light theme surface separates by border and keeps its text readable', 
   assert.match(groupTitle, /font-weight:\s*600/)
   assert.doesNotMatch(groupTitle, /uppercase/)
   assert.match(rule(PANEL_CSS, '.sd-switch-track'), /border:\s*1px solid/, 'an off switch must be visible on a white page')
+})
+
+test('the required asterisk is a theme-derived dark red', () => {
+  const mark = rule(PANEL_CSS, '.sd-required')
+  assert.match(mark, /color:\s*var\(--dsw-alias-state-error-primary\)/, 'the fallback follows the theme error colour')
+  assert.match(mark, /color-mix\(in srgb, var\(--dsw-alias-state-error-primary\)/, 'the visible colour deepens the theme red')
+})
+
+test('the saved confirmation is a footer badge, not a toast', () => {
+  assert.match(
+    PANEL_CSS,
+    /\.sd-badge-warn,\s*\.sd-badge-success,\s*\.sd-badge-ghost \{[^}]*color:\s*#fff/,
+    'success uses the same filled badge treatment as the state markers',
+  )
+  const success = rule(PANEL_CSS, '.sd-badge-success')
+  assert.match(success, /background:\s*color-mix/, 'the saved badge has a deep success fill')
+  assert.match(rule(PANEL_CSS, '.sd-footer-feedback'), /display:\s*inline-flex/)
+  assert.doesNotMatch(PANEL_CSS, /\.sd-toast/, 'the toast channel is gone')
+})
+
+test('the prompt switch shares the styled toolbar tooltip', () => {
+  assert.match(PANEL_CSS, /\.sd-announce\[data-tip\]:focus-within::after/, 'keyboard focus shows the same styled tip')
+  assert.match(PANEL_CSS, /\.sd-announce\[data-tip\]::after \{\n  top:/, 'the tip is positioned below the switch')
+})
+
+test('the macOS header clears the window chrome', () => {
+  const header = rule(PANEL_CSS, "[data-platform='darwin'] .sd-header")
+  assert.match(
+    header,
+    /padding-top:\s*calc\(10px \+ var\(--dsh-frame-top-clearance, 0px\)\)/,
+    'entry pages in the main panel pad below the traffic lights and sidebar controls',
+  )
 })

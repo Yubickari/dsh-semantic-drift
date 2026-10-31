@@ -29,6 +29,16 @@ export const PANEL_CSS = `
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   flex: none;
   min-height: 52px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+/* On macOS the frame reserves a top strip for the hiddenInset traffic lights and
+   the collapsed-sidebar controls, and entry pages in the main panel pad by
+   --dsh-frame-top-clearance (ui-layout README). The header is also the drag row
+   (data-window-drag in the JSX): its blank strip drags the window while its
+   controls stay clickable through the shell's no-drag rule. */
+[data-platform='darwin'] .sd-header {
+  padding-top: calc(10px + var(--dsh-frame-top-clearance, 0px));
 }
 .sd-heading { display: flex; flex-direction: column; min-width: 0; }
 .sd-title { font-size: 15px; font-weight: 600; letter-spacing: .01em; }
@@ -43,6 +53,20 @@ export const PANEL_CSS = `
 .sd-spacer { flex: 1; }
 .sd-spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sd-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+/* The prompt switch sits with the workspace controls; the label is compact and
+   the full explanation stays on the wrapper's tooltip. */
+.sd-announce {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+.sd-announce-label { font-weight: 600; }
+.sd-announce .sd-switch { height: 28px; padding: 0 2px; }
 .sd-body { display: flex; flex: 1; min-height: 0; }
 .sd-tree {
   width: 268px;
@@ -97,7 +121,8 @@ export const PANEL_CSS = `
 /* A native title tooltip waits a second and sometimes never shows; this one is
    immediate, styled, and shares the label the screen reader already gets. */
 .sd-button-icon[data-tip]::after,
-.sd-tip-above[data-tip]::after {
+.sd-tip-above[data-tip]::after,
+.sd-announce[data-tip]::after {
   content: attr(data-tip);
   position: absolute;
   padding: 4px 8px;
@@ -118,16 +143,29 @@ export const PANEL_CSS = `
 .sd-button-icon[data-tip]::after { top: calc(100% + 6px); right: 0; transform: translateY(-2px); }
 .sd-tip-above { position: relative; }
 .sd-tip-above[data-tip]::after { bottom: calc(100% + 6px); left: 0; transform: translateY(2px); }
+.sd-announce[data-tip]::after {
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: 300px;
+  white-space: normal;
+  text-align: left;
+  transform: translateY(-2px);
+}
 .sd-button-icon[data-tip]:hover::after,
 .sd-button-icon[data-tip]:focus-visible::after,
 .sd-tip-above[data-tip]:hover::after,
-.sd-tip-above[data-tip]:focus-visible::after { opacity: 1; transform: translateY(0); }
+.sd-tip-above[data-tip]:focus-visible::after,
+.sd-announce[data-tip]:hover::after,
+.sd-announce[data-tip]:focus-within::after { opacity: 1; transform: translateY(0); }
 .sd-button-icon:disabled[data-tip]::after { display: none; }
-/* A stale report is a state the reader has to notice, so it gets a filled badge
-   rather than a coloured word. White on amber is only readable if the amber is
-   deep enough; the mix keeps the hue and darkens it for both themes, and the
-   plain token stays as the fallback where color-mix is unavailable. */
-.sd-badge-warn {
+/* A stale report or a successful save is a state the reader has to notice, so
+   both get a filled badge rather than a coloured word. The success fill is
+   deepened the same way as the amber one so white text keeps its contrast in
+   both themes, and the plain token stays as the fallback. */
+.sd-badge-warn,
+.sd-badge-success,
+.sd-badge-ghost {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -138,15 +176,35 @@ export const PANEL_CSS = `
   font-size: 11px;
   font-weight: 600;
   line-height: 1.6;
-  background: var(--dsw-alias-state-warn-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 72%, #1f1300);
   color: #fff;
   cursor: pointer;
   text-shadow: 0 1px 0 rgba(0, 0, 0, .25);
 }
-.sd-badge-warn:hover:not(:disabled) { filter: brightness(1.08); }
-.sd-badge-warn:focus-visible { outline: none; border-color: var(--dsw-alias-label-primary); }
-.sd-badge-warn:disabled { cursor: default; opacity: .75; }
+.sd-badge-warn {
+  background: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 72%, #1f1300);
+}
+.sd-badge-success {
+  background: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, #052e16);
+}
+/* The follow-up action (e.g. Undo) stays a badge but reads as a secondary
+   control beside the saved state instead of a second confirmation. */
+.sd-badge-ghost {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  text-shadow: none;
+}
+.sd-badge-warn:hover:not(:disabled),
+.sd-badge-success:hover:not(:disabled),
+.sd-badge-ghost:hover:not(:disabled) { filter: brightness(1.08); }
+.sd-badge-warn:focus-visible,
+.sd-badge-success:focus-visible,
+.sd-badge-ghost:focus-visible { outline: none; border-color: var(--dsw-alias-label-primary); }
+.sd-badge-warn:disabled,
+.sd-badge-success:disabled,
+.sd-badge-ghost:disabled { cursor: default; opacity: .75; }
 .sd-switch {
   display: inline-flex;
   align-items: center;
@@ -429,30 +487,64 @@ export const PANEL_CSS = `
 .sd-issue-where { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .sd-issue-title { font-weight: 600; }
 .sd-issue-original { color: var(--dsw-alias-label-secondary); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
-.sd-notice-dock {
+/* Feedback surfaces: a Banner is persistent page state or a failed action; a
+   success badge in the footer mirrors the state markers. Neither is a toast. */
+.sd-banner-dock {
   flex: none;
-  padding: 0 16px 6px;
+  padding: 6px 16px 0;
 }
-.sd-notice {
-  position: relative;
-  margin: 0;
+.sd-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   padding: 7px 9px 7px 11px;
   border-radius: 7px;
-  font-size: 12px;
-  border: 1px solid var(--dsw-alias-border-l1);
+  border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-overlay);
-  cursor: default;
+  font-size: 12px;
 }
-.sd-notice-head { display: flex; align-items: center; gap: 10px; }
-.sd-notice-head[data-multiline='true'] { align-items: flex-start; }
-.sd-notice-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.sd-notice-close { flex: none; margin-left: auto; }
-.sd-notice[data-kind='error'] { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
-.sd-notice[data-kind='success'] { border-color: var(--dsw-alias-state-success-primary); }
-.sd-notice[data-kind='info'] { border-color: var(--dsw-alias-border-l2); }
+.sd-banner[data-kind='error'] {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+.sd-banner-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.sd-banner-title { font-weight: 600; }
+.sd-banner-action { display: flex; align-items: flex-start; gap: 6px; flex: none; }
+.sd-banner-detail { margin-bottom: 12px; }
+
+.sd-footer-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 46%;
+}
+.sd-footer-feedback .sd-badge-success {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-footer-feedback .sd-badge-ghost { flex: none; }
 .sd-form { display: flex; flex-direction: column; gap: 14px; max-width: 620px; }
 .sd-field { display: flex; flex-direction: column; gap: 5px; }
 .sd-label { font-size: 12px; font-weight: 600; }
+/* Required fields are the four the vocabulary contract always needs. The mix
+   deepens the theme's error red into the dark red the form asks for, and keeps
+   it legible on the dark theme too. */
+.sd-required {
+  color: var(--dsw-alias-state-error-primary);
+  color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, #570c0c);
+  font-weight: 700;
+  margin-left: 2px;
+}
 .sd-hint { font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .sd-row { display: flex; gap: 10px; }
 .sd-row > * { flex: 1; }

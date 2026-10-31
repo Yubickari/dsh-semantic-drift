@@ -242,10 +242,11 @@ the same name, and private nested helpers.
 | `drift_scan` | structured findings with detector, confidence and citation |
 | `semantic_accept` | `add` (default), `update` scope or reason, `remove` one, `clear` a concept; `reason` is required to add or update. `previousPath` locates the entry to change |
 
-With `announceToAgent` on, every session receives one prompt section: the concepts
-of the workspace it runs in and the rules that go with them. The section is capped
-at 200 lines and summarized past 120 concepts. Turn it off in the panel to stop the
-recurring token cost; the tools stay available.
+With `announceToAgent` on (the default), every session receives one prompt section:
+the concepts of the workspace it runs in and the rules that go with them. The
+section is capped at 200 lines and summarized past 120 concepts. The **Prompt
+injection** switch in the header is stored per workspace; turning it off stops that
+workspace's recurring token cost, and the tools stay available.
 
 A refusal is always a value (`{ ok: false, code, message, issues }`), never an
 exception. A vocabulary file that cannot be parsed is reported as `valid: false`
@@ -274,6 +275,9 @@ The loop this is built for:
   only scan button; the footer reports.
 - **Workspace mode** — a crosshair while the panel follows the session's workspace,
   a pushpin while it is pinned; clicking switches.
+- **Prompt injection** — the switch beside the workspace mode is stored per
+  workspace; it controls whether that workspace's vocabulary goes into agent
+  prompts.
 - **Scan memory** — re-opening the panel shows the report this tab already has for
   that workspace (default 10 minutes, configurable). The footer dates it; past the
   retention it raises an amber badge, and so does an edited vocabulary file. Both
@@ -281,14 +285,26 @@ The loop this is built for:
 - **Remembered page** — the panel returns to the concept (or unclassified list) it
   was on, only if that concept still exists.
 - **Unclassified** — findings no concept owns; they exist before the first concept.
-- **Settings** — four groups: workspace following (follow on or off, rescan on
-  follow), scanning and cache (how long a report is reused), display and notices
-  (low-confidence findings, notice duration), and agent prompts (the **prompt
-  injection switch**). Every change applies at once: the browser preferences go to
-  `localStorage`, the injection switch to the plugin row. There is no save button —
-  the dialog closes with the × in its title bar. Project-level settings are not here:
-  one line at the bottom of the dialog points at DSH's Configuration block for this
-  bundle (see [Configuration](#configuration)).
+- **Settings** — three groups: workspace following (follow on or off, rescan on
+  follow), scanning and cache (how long a report is reused), and display and notices
+  (low-confidence findings, notice duration). Every change applies at once: the
+  preferences go to `localStorage`. There is no save button — the dialog closes with
+  the × in its title bar. The prompt-injection switch lives in the header, not here.
+  Project-level settings are not here either: one line at the bottom of the dialog
+  points at DSH's Configuration block for this bundle (see
+  [Configuration](#configuration)).
+
+#### Feedback channels
+
+The panel has four channels, each with a different lifetime:
+
+| Channel | Where it appears | Lifetime |
+|---|---|---|
+| Validation issue | inside the form that caused it | until the form is corrected or resubmitted; never repeated in a banner |
+| Banner | top of the page (never scanned), above the detail (invalid vocabulary), or below the header (a failed action) | persists while the state does; a failed-action banner carries a close control and any positioned issues |
+| Footer badge | footer | success confirmations (**Save**, copy, accept, restore) use the same filled badge as the state markers; click to dismiss, or close after **Notifications close after** seconds (0 = keep). State flags (stale scan, changed vocabulary, truncation) share the channel |
+
+There is no toast: a success is a footer badge, and a failure that needs details is a banner.
 
 ### Configuration
 
@@ -298,7 +314,8 @@ and which file is the vocabulary.
 | Field | Default | Meaning |
 |---|---|---|
 | `vocabularyPath` | `.dsh/semantics.yaml` | vocabulary file, relative to the workspace root |
-| `announceToAgent` | `true` | inject the vocabulary section into agent prompts |
+| `announceToAgent` | `true` | fallback for a workspace without its own switch |
+| `announceByWorkspace` | `{}` | per-workspace prompt-injection overrides, keyed by canonical path; written by the header switch and hidden from the form |
 | `citationStyle` | `file+symbol` | `path/File.cs::Symbol` or `path/File.cs:123` |
 | `minConfidence` | `medium` | lowest confidence the **tools** report; the panel receives every level |
 | `timeoutMs` | `30000` | wall-clock budget for one scan |
@@ -307,8 +324,8 @@ and which file is the vocabulary.
 | `maxFiles` | `50000` | hard cap on files visited |
 | `detectors` | all four | which detectors a scan runs |
 
-Every field in this table is plugin-row configuration, and all of it except
-`announceToAgent` is edited in DSH: **Plugins → Installed Plugins →
+Every field in this table is plugin-row configuration, and all of it except the two
+prompt-injection fields is edited in DSH: **Plugins → Installed Plugins →
 `dsh-semantic-drift`** (the bundle) → **Configuration**. The plugin registers that page
 into the `plugins.bundle.config` seat and brings the field table (from the
 `schemastery` schema), the labels and the controls; the form itself — the values and
@@ -321,12 +338,12 @@ Every field here is **volatile**: the only kind DSH shows as editable, and the k
 the Loader commits in place instead of unmounting the plugin row. A change is therefore
 in force from the next read — no save button, no reload, nothing to toggle off and on.
 
-`announceToAgent` is the exception: it belongs to the panel's agent-prompt group, so
-the Configuration block leaves it out. The panel writes it through the Host's config
-editor — `POST /semantic-drift/settings` carries that one field and refuses a `patch`
-— and because the field is volatile the prompt section stays registered and returns an
-empty text while the switch is off: one click is the whole gesture, and the next prompt
-assembly already reflects it.
+`announceToAgent` is the default, and `announceByWorkspace` is the per-workspace map
+the header switch writes. Both are hidden from the Configuration form. The panel sends
+one field through the Host's config editor — `POST /semantic-drift/settings` carries
+the workspace and the new value, and refuses a `patch` — and the prompt section reads
+the same map live: one click is the whole gesture, and the next prompt assembly already
+reflects it. A workspace with no entry keeps the default.
 
 Everything else in the panel's settings dialog is a browser preference kept in
 `localStorage` — not in the vocabulary file, not in the plugin row.

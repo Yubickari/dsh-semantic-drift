@@ -19,7 +19,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { Config, announceEnabled, liveConfig } from './config.ts'
+import { Config, announceEnabled, liveConfig, liveValue } from './config.ts'
 import type { Volatile } from './config.ts'
 import { PROMPT_SECTION, PROMPT_SECTION_ORDER, buildPromptText } from './prompt.ts'
 import { PACKAGE_NAME, ROW_ID } from './protocol.ts'
@@ -27,12 +27,12 @@ import { makeSemanticRoutes } from './routes.ts'
 import { SemanticError, createSemanticService } from './service.ts'
 import type { SemanticConfig } from './service.ts'
 import { buildSemanticTools } from './tools.ts'
-import { createWorkspaceResolver } from './workspace.ts'
+import { createWorkspaceResolver, workspaceKey } from './workspace.ts'
 
 export { Config }
 
 /** Package version, kept in sync with package.json by a test. */
-export const VERSION = '0.1.5'
+export const VERSION = '0.1.6'
 
 /**
  * Services this plugin cannot work without.
@@ -177,7 +177,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
     return typeof entry.id === 'string' && entry.id.endsWith(`:${ROW_ID}`)
   }
 
-  const editPluginConfig = async (patch: Record<string, unknown>): Promise<void> => {
+  const configEditorEntry = (): { editor: ConfigEditorLike; entry: LoaderEntry } => {
     // Resolved per call, not at mount: an optional service can appear after this
     // row activates, and a captured `undefined` would never recover.
     let editor: ConfigEditorLike | undefined
@@ -198,7 +198,25 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
         `${PACKAGE_NAME} is not a Loader entry in this profile (saw: ${seen.join(', ') || 'none'}); edit it under Plugins → Installed Plugins → this plugin → Configuration.`,
       )
     }
+    return { editor, entry }
+  }
+
+  const editPluginConfig = async (patch: Record<string, unknown>): Promise<void> => {
+    const { editor, entry } = configEditorEntry()
     await editor.edit(entry, current => ({ ...current, ...patch }))
+  }
+
+  /**
+   * Write one workspace's prompt-injection choice into the hidden
+   * `announceByWorkspace` map on this plugin's row. A map write is the smallest
+   * change the Host's config editor can commit, and the prompt section reads the
+   * same map live.
+   */
+  const editWorkspaceAnnounce = async (workspacePath: string, enabled: boolean): Promise<void> => {
+    const { editor, entry } = configEditorEntry()
+    const current = liveValue(config.announceByWorkspace) ?? {}
+    const next = { ...current, [workspaceKey(workspacePath)]: enabled }
+    await editor.edit(entry, currentConfig => ({ ...currentConfig, announceByWorkspace: next }))
   }
 
   if (webServer !== undefined) {
@@ -215,7 +233,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
           tools: health.tools,
           routes: health.routes,
           promptSection: health.prompt,
-        }), { editConfig: editPluginConfig })) disposers.push(webServer.register(route))
+        }), { editConfig: editPluginConfig, editWorkspaceAnnounce })) disposers.push(webServer.register(route))
       } catch (error) {
         for (const dispose of disposers) {
           try {
@@ -247,7 +265,6 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
       order: PROMPT_SECTION_ORDER,
       text: () => {
         try {
-          if (!announceEnabled(config.announceToAgent)) return ''
           return buildPromptText(context, config, workspace)
         } catch {
           // A prompt section must never fail an assembly.

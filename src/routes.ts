@@ -154,6 +154,11 @@ export interface SemanticRouteHooks {
    * with a pointer to DSH's own plugin settings form.
    */
   editConfig?(patch: { announceToAgent: boolean }): Promise<void>
+  /**
+   * Persist one workspace's prompt switch. When absent, the route falls back to
+   * {@link editConfig}, which keeps older embedders and tests working.
+   */
+  editWorkspaceAnnounce?(workspace: string, enabled: boolean): Promise<void>
 }
 
 export function makeSemanticRoutes(
@@ -314,16 +319,23 @@ export function makeSemanticRoutes(
         if (typeof announceToAgent !== 'boolean') {
           throw new SemanticError('bad-request', '`announceToAgent` must be a boolean.')
         }
-        if (hooks.editConfig === undefined) {
-          throw new SemanticError(
-            'unsupported',
-            'This Host exposes no config editor; edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration.',
-          )
-        }
-        const applied = { announceToAgent }
-        await hooks.editConfig(applied)
         const workspace = optionalString(body.workspace)
-        if (workspace === undefined) {
+        // Resolve before writing: the map key is durable, so an unregistered
+        // path must be refused instead of becoming a permanent orphan entry.
+        const target = workspace === undefined ? undefined : await service.resolve(workspace)
+        const applied = { announceToAgent }
+        if (target !== undefined && hooks.editWorkspaceAnnounce !== undefined) {
+          await hooks.editWorkspaceAnnounce(target.path, announceToAgent)
+        } else {
+          if (hooks.editConfig === undefined) {
+            throw new SemanticError(
+              'unsupported',
+              'This Host exposes no config editor; edit the plugin row under Plugins → Installed Plugins → this plugin → Configuration.',
+            )
+          }
+          await hooks.editConfig(applied)
+        }
+        if (target === undefined) {
           const echo: SettingsEcho = { ok: true, applied }
           return writeJson(res, 200, echo)
         }
@@ -332,7 +344,7 @@ export function makeSemanticRoutes(
         // whole panel state, and a read that fails must not fail the write.
         let state: SettingsResponse | undefined
         try {
-          state = { ...(await service.state(workspace)), applied }
+          state = { ...(await service.state(target.path)), applied }
         } catch {
           state = undefined
         }

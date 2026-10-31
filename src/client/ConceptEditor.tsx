@@ -6,6 +6,10 @@
  * document path and is rendered next to the form, so a refused save explains
  * itself instead of failing silently.
  *
+ * Required fields carry a dark-red asterisk and `aria-required` rather than the
+ * native `required` attribute: the host owns validation, and a browser bubble
+ * would replace the positioned issues rendered here.
+ *
  * @module dsh-semantic-drift/client/ConceptEditor
  */
 
@@ -14,6 +18,13 @@ import { CONCEPT_KINDS } from '../protocol.ts'
 import type { Concept, ConceptKind, ValidationIssue } from '../protocol.ts'
 import { IssueList } from './IssueList.tsx'
 import { t } from './locales.ts'
+
+/** The asterisk that marks a required field; the control carries `aria-required`. */
+function RequiredMark() {
+  return (
+    <span className="sd-required" aria-hidden="true" title={t('editor.required')}>*</span>
+  )
+}
 
 /** Props of the concept form. */
 export interface ConceptEditorProps {
@@ -67,7 +78,7 @@ export function ConceptEditor(props: ConceptEditorProps) {
       </div>
 
       <div className="sd-field">
-        <label className="sd-label" htmlFor="sd-id">{t('editor.id')}</label>
+        <label className="sd-label" htmlFor="sd-id">{t('editor.id')} <RequiredMark /></label>
         <input
           id="sd-id"
           className="sd-input sd-mono"
@@ -76,31 +87,34 @@ export function ConceptEditor(props: ConceptEditorProps) {
           placeholder="device.target_temperature"
           disabled={props.concept !== undefined}
           spellCheck={false}
+          aria-required="true"
         />
         <span className="sd-hint">{t('editor.idHint')}</span>
       </div>
 
       <div className="sd-field">
-        <label className="sd-label" htmlFor="sd-terms">{t('editor.terms')}</label>
+        <label className="sd-label" htmlFor="sd-terms">{t('editor.terms')} <RequiredMark /></label>
         <input
           id="sd-terms"
           className="sd-input"
           value={terms}
           onChange={event => setTerms(event.target.value)}
           placeholder="目标温度, 设定温度"
+          aria-required="true"
         />
         <span className="sd-hint">{t('editor.termsHint')}</span>
       </div>
 
       <div className="sd-row">
         <div className="sd-field">
-          <label className="sd-label" htmlFor="sd-kind">{t('editor.kind')}</label>
+          <label className="sd-label" htmlFor="sd-kind">{t('editor.kind')} <RequiredMark /></label>
           <select
             id="sd-kind"
             className="sd-select"
             value={kind}
             onChange={event => setKind(event.target.value as ConceptKind)}
             style={{ maxWidth: 'none', width: '100%' }}
+            aria-required="true"
           >
             {CONCEPT_KINDS.map(value => (
               <option key={value} value={value}>{t(`kind.${value}`)}</option>
@@ -121,7 +135,7 @@ export function ConceptEditor(props: ConceptEditorProps) {
 
       <div className="sd-row">
         <div className="sd-field">
-          <label className="sd-label" htmlFor="sd-symbol">{t('editor.symbol')}</label>
+          <label className="sd-label" htmlFor="sd-symbol">{t('editor.symbol')} <RequiredMark /></label>
           <input
             id="sd-symbol"
             className="sd-input sd-mono"
@@ -129,6 +143,7 @@ export function ConceptEditor(props: ConceptEditorProps) {
             onChange={event => setSymbol(event.target.value)}
             placeholder="TargetTemperature"
             spellCheck={false}
+            aria-required="true"
           />
           <span className="sd-hint">{t('editor.symbolHint')}</span>
         </div>
