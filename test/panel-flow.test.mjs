@@ -217,7 +217,7 @@ function type(selector, value) {
   })
 }
 
-test('a duplicate canonical symbol shows up as a visible refusal', async () => {
+test('a duplicate canonical symbol stays in the form, not in a banner', async () => {
   const { container, root } = mountPanel()
   await flush()
   assert.match(container.textContent ?? '', /ModuleName/, 'the loaded concept must be on screen')
@@ -240,12 +240,158 @@ test('a duplicate canonical symbol shows up as a visible refusal', async () => {
   const text = container.textContent ?? ''
   assert.match(text, /规范符号重复/, `the localized headline must be visible; got: ${text.slice(0, 400)}`)
   assert.match(text, /already used by/, 'the host sentence must be visible')
-  assert.match(text, /2 处问题|1 处问题/, 'the notice must count the issues')
+
+  const formIssues = container.querySelector('.sd-form .sd-issues')
+  assert.ok(formIssues !== null, 'the editor must render the issues next to the fields')
+  assert.equal(formIssues.querySelectorAll('.sd-issue').length, 1, 'one positioned issue per refusal')
+  assert.equal(
+    container.querySelector('.sd-banner[data-kind="error"]'),
+    null,
+    'the error banner must not repeat a refusal the form already explains',
+  )
 
   reactAct(() => root.unmount())
 })
 
-test('a failed load says so at the bottom and offers a retry', async () => {
+test('a new concept with missing fields keeps every error in the form', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async url => {
+    if (String(url).includes('/state')) {
+      return new Response(JSON.stringify(STATE), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    if (String(url).includes('/save')) {
+      return new Response(JSON.stringify({
+        ok: false,
+        code: 'invalid-vocabulary',
+        message: 'The vocabulary was not written because it failed validation.',
+        issues: [
+          { code: 'id-missing', message: '`concepts[1].id` is required.', severity: 'error', path: 'concepts[1].id' },
+          { code: 'terms-missing', message: '`concepts[1].terms` must list at least one Chinese term or alias.', severity: 'error', path: 'concepts[1].terms' },
+          { code: 'symbol-missing', message: '`concepts[1].canonical.symbol` is required.', severity: 'error', path: 'concepts[1].canonical.symbol' },
+        ],
+      }), { status: 400, headers: { 'content-type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({ ok: false, code: 'unexpected', message: 'not stubbed' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush()
+    click(byLabel(container, '新建概念'))
+    await flush()
+    const saveButton = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
+    assert.ok(saveButton !== undefined, 'the save button must exist')
+    click(saveButton)
+    await flush(10)
+
+    const formIssues = container.querySelector('.sd-form .sd-issues')
+    assert.ok(formIssues !== null, 'the editor must explain the missing fields')
+    assert.equal(formIssues.querySelectorAll('.sd-issue').length, 3, 'every missing field gets its own line')
+    const text = formIssues.textContent ?? ''
+    assert.match(text, /缺少概念 id/)
+    assert.match(text, /至少需要一个术语或别名/)
+    assert.match(text, /缺少规范符号/)
+    assert.equal(
+      container.querySelector('.sd-banner[data-kind="error"]'),
+      null,
+      'the error banner must not repeat the form errors',
+    )
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('a raw save validation issue stays in the raw editor, not in a banner', async () => {
+  const realFetch = globalThis.fetch
+  const rawIssue = {
+    code: 'yaml-parse',
+    message: 'unexpected end of the stream',
+    severity: 'error',
+    path: 'concepts',
+    line: 3,
+  }
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) return jsonBody(STATE)
+    if (href.includes('/raw')) {
+      return jsonBody({
+        ok: false,
+        code: 'invalid-vocabulary',
+        message: 'The vocabulary was not written because it failed validation.',
+        issues: [rawIssue],
+      }, 400)
+    }
+    return jsonBody({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush()
+    click(byLabel(container, 'YAML'))
+    await flush()
+    assert.ok(container.querySelector('.sd-raw textarea') !== null, 'the raw editor must be open')
+    type('.sd-raw textarea', 'version: 1\nconcepts: [\n')
+    const save = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
+    assert.ok(save !== undefined, 'the raw editor must offer save')
+    click(save)
+    await flush(8)
+
+    assert.ok(container.querySelector('.sd-raw .sd-issues') !== null, 'the raw editor explains the issue in place')
+    assert.equal(container.querySelector('.sd-banner[data-kind="error"]'), null, 'the error banner must not repeat a form issue')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('a save failure with no positioned issues uses a dismissible error banner', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async url => {
+    if (String(url).includes('/state')) {
+      return new Response(JSON.stringify(STATE), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    if (String(url).includes('/save')) {
+      return new Response(JSON.stringify({ ok: false, code: 'unreachable', message: 'host went away' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({ ok: false, code: 'unexpected', message: 'not stubbed' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush()
+    click(byLabel(container, '新建概念'))
+    await flush()
+    type('#sd-id', 'device.new_thing')
+    type('#sd-terms', '新东西')
+    type('#sd-symbol', 'NewThing')
+    const saveButton = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
+    assert.ok(saveButton !== undefined, 'the save button must exist')
+    click(saveButton)
+    await flush(8)
+
+    const banner = container.querySelector('.sd-banner[data-kind="error"]')
+    assert.ok(banner !== null, 'a failure without form issues must still be reported')
+    assert.match(banner.textContent ?? '', /连不上宿主进程/, 'the localized cause must be shown')
+    assert.equal(container.querySelector('.sd-form .sd-issues'), null, 'the host returned no positioned issues')
+    const close = banner.querySelector('[aria-label="关闭"]')
+    assert.ok(close !== null, 'the error banner must be dismissible')
+    click(close)
+    await flush(2)
+    assert.equal(container.querySelector('.sd-banner[data-kind="error"]'), null, 'closing the banner dismisses it')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('a failed load says so in an error banner and offers a retry', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = async () => new Response(JSON.stringify({ ok: false, code: 'unreachable', message: 'boom' }), {
     status: 502,
@@ -257,20 +403,21 @@ test('a failed load says so at the bottom and offers a retry', async () => {
     const text = container.textContent ?? ''
     assert.match(text, /加载失败/, `the load failure must be visible; got: ${text.slice(0, 300)}`)
     assert.match(text, /重试/, 'a retry control must be offered')
-    const dock = container.querySelector('.sd-notice-dock')
-    assert.ok(dock !== null, 'the notice must render in the bottom dock')
+    const banner = container.querySelector('.sd-banner[data-kind="error"]')
+    assert.ok(banner !== null, 'the error banner must render above the body')
+    assert.match(banner.textContent ?? '', /重试/, 'the banner offers the retry control')
     const detail = container.querySelector('.sd-detail')
     assert.ok(detail !== null)
     // The detail pane repeats the failure as its empty state text, so the
-    // structural check is about the notice element, not the words.
-    assert.equal(detail.querySelector('.sd-notice'), null, 'the notice must not sit inside the scrolling detail pane')
+    // structural check is about the banner element, not the words.
+    assert.equal(detail.querySelector('.sd-banner'), null, 'the error banner must not sit inside the scrolling detail pane')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
   }
 })
 
-test('a successful save dismisses the form and reports at the bottom', async () => {
+test('a successful save dismisses the form and reports in the footer badge', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = async (url, init = {}) => {
     if (String(url).includes('/state')) {
@@ -295,7 +442,12 @@ test('a successful save dismisses the form and reports at the bottom', async () 
     await flush(8)
     const text = container.textContent ?? ''
     assert.match(text, /已保存/)
-    assert.equal(container.querySelector('.sd-notice-dock') !== null, true)
+    const badge = container.querySelector('.sd-footer .sd-badge-success')
+    assert.ok(badge !== null, 'the saved confirmation must be a footer badge')
+    assert.match(badge.textContent ?? '', /已保存/)
+    click(badge)
+    await flush(2)
+    assert.equal(container.querySelector('.sd-footer .sd-badge-success'), null, 'clicking the badge dismisses it')
     assert.equal(container.querySelector('#sd-id'), null, 'the form closes after a successful save')
     reactAct(() => root.unmount())
   } finally {
@@ -404,12 +556,12 @@ test('the auto switch follows the session workspace and pins when switched off',
 
     openSettings(container)
     await flush(2)
-    const toggle = container.querySelector('[role="switch"]')
+    const toggle = container.querySelector('.sd-settings [role="switch"]')
     assert.ok(toggle !== null, 'the auto switch must exist in settings')
     assert.equal(toggle.getAttribute('aria-checked'), 'true')
     click(toggle)
     await flush(4)
-    assert.equal(container.querySelector('[role="switch"]')?.getAttribute('aria-checked'), 'false')
+    assert.equal(container.querySelector('.sd-settings [role="switch"]')?.getAttribute('aria-checked'), 'false')
     // Every settings edit already applied; closing is the title bar's ×.
     const close = container.querySelector('.sd-settings [aria-label="关闭"]')
     assert.ok(close !== null, 'the dialog needs a close control')
@@ -539,7 +691,7 @@ test('accepting one site can mute the whole file-name family', async () => {
   }
 })
 
-test('a success notice closes itself after the configured seconds', async () => {
+test('a success badge closes itself after the configured seconds', async () => {
   resetPrefs({ auto: true, notificationSeconds: 0.05, showLow: false })
   const realFetch = globalThis.fetch
   const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -561,10 +713,10 @@ test('a success notice closes itself after the configured seconds', async () => 
     const save = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
     click(save)
     await flush(3)
-    assert.match(container.textContent ?? '', /已保存/)
+    assert.ok(container.querySelector('.sd-footer .sd-badge-success') !== null, 'the saved badge must be visible')
     await new Promise(resolve => setTimeout(resolve, 200))
     await flush(2)
-    assert.doesNotMatch(container.textContent ?? '', /已保存/, 'the success notice must close itself')
+    assert.equal(container.querySelector('.sd-footer .sd-badge-success'), null, 'the success badge must close itself')
     reactAct(() => root.unmount())
   } finally {
     globalThis.fetch = realFetch
@@ -647,7 +799,7 @@ test('an accepted exception can be narrowed, removed and undone', async () => {
     assert.equal(update.reason, 'only the Common copies')
     assert.match(container.textContent ?? '', /例外已更新/)
 
-    // Remove it, then undo from the notice.
+    // Remove it, then undo from the footer badge.
     const remove = container.querySelector('[aria-label^="移除 ModuleName"]')
     assert.ok(remove !== null)
     click(remove)
@@ -660,7 +812,7 @@ test('an accepted exception can be narrowed, removed and undone', async () => {
     assert.match(container.textContent ?? '', /重新出现/)
 
     const undo = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '撤销')
-    assert.ok(undo !== undefined, 'the notice must offer undo')
+    assert.ok(undo !== undefined, 'the footer badge must offer undo')
     click(undo)
     await flush(8)
     const restore = calls.filter(call => (call.op ?? 'add') === 'add').at(-1)
@@ -784,13 +936,13 @@ test('opening the panel never scans, and the child switch controls rescan-on-fol
 
     openSettings(container)
     await flush(2)
-    const switches = [...container.querySelectorAll('[role="switch"]')]
-    assert.equal(switches.length, 4, 'follow, rescan, low-confidence and prompt injection')
+    const switches = [...container.querySelectorAll('.sd-settings [role="switch"]')]
+    assert.equal(switches.length, 3, 'follow, rescan, and low-confidence')
     const rescanSwitch = switches[1]
     assert.equal(rescanSwitch.getAttribute('aria-checked'), 'false', 'rescan-on-follow is off by default')
     click(rescanSwitch)
     await flush(2)
-    assert.equal(container.querySelectorAll('[role="switch"]')[1].getAttribute('aria-checked'), 'true')
+    assert.equal(container.querySelectorAll('.sd-settings [role="switch"]')[1].getAttribute('aria-checked'), 'true')
     click(container.querySelector('.sd-settings [aria-label="关闭"]'))
     await flush(2)
 
@@ -802,10 +954,10 @@ test('opening the panel never scans, and the child switch controls rescan-on-fol
     // Turning following off must disable its child switch.
     openSettings(container)
     await flush(2)
-    const autoSwitch = container.querySelectorAll('[role="switch"]')[0]
+    const autoSwitch = container.querySelectorAll('.sd-settings [role="switch"]')[0]
     click(autoSwitch)
     await flush(2)
-    const childAfter = container.querySelectorAll('[role="switch"]')[1]
+    const childAfter = container.querySelectorAll('.sd-settings [role="switch"]')[1]
     assert.equal(childAfter.getAttribute('aria-checked'), 'false')
     assert.equal(childAfter.hasAttribute('disabled'), true, 'the child switch is not available without following')
     reactAct(() => root.unmount())
@@ -1018,6 +1170,44 @@ test('the toolbar is icon-only and describes each action for hover and screen re
   }
 })
 
+test('the header is the window drag row', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async () => json(STATE)
+  try {
+    const { container, root } = mountPanel()
+    await flush(6)
+    const header = container.querySelector('.sd-header')
+    assert.ok(header !== null)
+    assert.equal(header.hasAttribute('data-window-drag'), true, 'the header is the drag geometry for the macOS chrome')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('the injection switch uses the styled toolbar tooltip with the token cost', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  globalThis.fetch = async () => json(STATE)
+  try {
+    const { container, root } = mountPanel()
+    await flush(6)
+    const announce = container.querySelector('.sd-announce')
+    assert.ok(announce !== null, 'the header must host the prompt switch')
+    assert.match(announce.getAttribute('data-tip') ?? '', /tokens/i, 'the hover tip must warn about the token cost')
+    assert.equal(announce.hasAttribute('title'), false, 'the styled tooltip replaces the native title')
+    assert.ok(announce.querySelector('[aria-label="注入 Agent 提示"]') !== null, 'the switch keeps its accessible label')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
 test('the workspace mode is an icon that says which mode it is in', async () => {
   resetPrefs()
   const realFetch = globalThis.fetch
@@ -1086,10 +1276,10 @@ test('the stale badge stays in the footer, is clickable and rescans', async () =
   }
 })
 
-/** A switch inside the open settings dialog, by its accessible label. */
+/** The header's prompt-injection switch, by its accessible label. */
 function settingSwitch(container, label) {
-  const knob = container.querySelector(`.sd-settings [aria-label="${label}"]`)
-  assert.ok(knob !== null, `missing settings switch: ${label}`)
+  const knob = container.querySelector(`.sd-announce [aria-label="${label}"]`)
+  assert.ok(knob !== null, `missing header switch: ${label}`)
   return knob
 }
 
@@ -1122,8 +1312,6 @@ test('one click on the injection switch flips it, writes once and settles on the
   try {
     const { container, root } = mountPanel()
     await flush(8)
-    openSettings(container)
-    await flush(2)
     assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'true')
 
     click(settingSwitch(container, '注入 Agent 提示'))
@@ -1135,7 +1323,7 @@ test('one click on the injection switch flips it, writes once and settles on the
     await flush(10)
     assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'false')
     assert.deepEqual(writes, [{ workspace: '/tmp/sample-app', announceToAgent: false }])
-    const saved = (container.textContent ?? '').match(/插件设置已保存/g) ?? []
+    const saved = (container.textContent ?? '').match(/已保存/g) ?? []
     assert.equal(saved.length, 1, 'the write is reported once')
     reactAct(() => root.unmount())
   } finally {
@@ -1159,8 +1347,6 @@ test('the injection switch follows the Host when the echo disagrees with the cli
   try {
     const { container, root } = mountPanel()
     await flush(8)
-    openSettings(container)
-    await flush(2)
     click(settingSwitch(container, '注入 Agent 提示'))
     await flush(10)
     assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'true', 'the authoritative echo corrects the optimistic flip')
@@ -1185,8 +1371,6 @@ test('a refused injection write rolls the switch back and says so', async () => 
   try {
     const { container, root } = mountPanel()
     await flush(8)
-    openSettings(container)
-    await flush(2)
     click(settingSwitch(container, '注入 Agent 提示'))
     await flush(10)
     assert.equal(settingSwitch(container, '注入 Agent 提示').getAttribute('aria-checked'), 'true', 'a failed write restores the old value')
@@ -1209,9 +1393,10 @@ test('the settings dialog groups its rows and drops the project and version bloc
   const text = dialog.textContent ?? ''
 
   const groups = [...dialog.querySelectorAll('.sd-settings-title')].map(node => node.textContent)
-  assert.deepEqual(groups, ['工作区跟随', '扫描与缓存', '显示与通知', 'Agent 提示'], 'four groups, in order')
-  const announceGroup = dialog.querySelector('[aria-label="注入 Agent 提示"]')?.closest('.sd-settings-section')
-  assert.equal(announceGroup?.querySelector('.sd-settings-title')?.textContent, 'Agent 提示', 'the injection switch belongs to the agent group')
+  assert.deepEqual(groups, ['工作区跟随', '扫描与缓存', '显示与通知'], 'three groups, in order')
+  const headerSwitch = container.querySelector('.sd-announce [aria-label="注入 Agent 提示"]')
+  assert.ok(headerSwitch !== null, 'the injection switch lives in the header')
+  assert.equal(headerSwitch.closest('.sd-settings'), null, 'it is no longer in the settings dialog')
 
   assert.doesNotMatch(text, /插件版本/, 'the version belongs to the footer, not the dialog')
   assert.doesNotMatch(text, /0\.1\.0/, 'no version number inside the dialog')

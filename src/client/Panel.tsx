@@ -25,14 +25,13 @@ import { acceptException, ApiError, appliedAnnounce, fetchState, initVocabulary,
 import { ConceptDetail, EmptyDetail } from './ConceptDetail.tsx'
 import { defaultAcceptConcept, suggestConceptId } from './finding-actions.ts'
 import { IssueList } from './IssueList.tsx'
-import { Notice } from './Notice.tsx'
+import { Banner } from './Banner.tsx'
 import { loadPreferences, savePreferences } from './preferences.ts'
 import { recallScan, rememberScan } from './scan-cache.ts'
 import { forgetSelection, recallSelection, rememberSelection } from './view-memory.ts'
 import { matchesGlob } from '../glob.ts'
 import { ScopeSelect, coveredBy, scopeFromPath, scopePathFor } from './ScopeSelect.tsx'
 import type { ScopeValue } from './ScopeSelect.tsx'
-import type { NoticeValue } from './Notice.tsx'
 import { ConceptEditor } from './ConceptEditor.tsx'
 import { ConceptTree } from './ConceptTree.tsx'
 import { DriftList } from './DriftList.tsx'
@@ -76,13 +75,22 @@ function issuesOf(error: unknown): readonly ValidationIssue[] {
   return error instanceof ApiError ? error.issues : []
 }
 
+/** One operation result: a success badge in the footer, or an error banner. */
+interface FeedbackValue {
+  kind: 'success' | 'error'
+  text: string
+  issues?: readonly ValidationIssue[]
+  /** One immediate follow-up, e.g. undoing a removal. */
+  action?: { label: string; run: () => void }
+}
+
 /** Save feedback that names the issue count, so a refusal is never a silent no-op. */
 function saveFailureText(error: unknown, fallback: MessageKey, issues: readonly ValidationIssue[]): string {
   const base = errorText(error, fallback)
   return issues.length === 0 ? base : base + tf('state.issueCount', { count: issues.length })
 }
 
-/** A notice line: the localized cause when the code is known, else the raw text. */
+/** A feedback line: the localized cause when the code is known, else the raw text. */
 function errorText(error: unknown, fallback: MessageKey): string {
   const code = error instanceof ApiError ? error.code : undefined
   const localized = code === undefined ? undefined : maybeT(`api.${code}`)
@@ -167,7 +175,7 @@ export function SemanticPanel(props: PanelProps) {
   /** Vocabulary mtime when it was produced, for the "file changed" badge. */
   const [scanMtime, setScanMtime] = useState<number | undefined>(undefined)
   const [busy, setBusy] = useState<'load' | 'scan' | 'save' | 'accept' | 'init' | null>(null)
-  const [notice, setNotice] = useState<NoticeValue | null>(null)
+  const [notice, setNotice] = useState<FeedbackValue | null>(null)
   const [editorIssues, setEditorIssues] = useState<readonly ValidationIssue[]>([])
   const [acceptTarget, setAcceptTarget] = useState<DriftFinding | null>(null)
   const [acceptReason, setAcceptReason] = useState('')
@@ -259,14 +267,12 @@ export function SemanticPanel(props: PanelProps) {
     })
   }, [auto, autoScan, pinned, notificationSeconds, showLow, scanRetentionMinutes])
 
-  // A success notice closes itself after the configured delay; an error that
-  // carries validation issues never does, because that is the text the user has
-  // to act on. 0 disables the timer entirely.
+  // A success badge closes itself after the configured delay; an error banner
+  // waits for the reader to dismiss it, because it is the text that explains a
+  // failed action. 0 disables the success timer entirely.
   useEffect(() => {
-    if (notice === null) return
+    if (notice === null || notice.kind !== 'success') return
     if (!(notificationSeconds > 0)) return
-    const autoClosable = notice.kind === 'success' || (notice.issues ?? []).length === 0
-    if (!autoClosable) return
     const timer = setTimeout(() => setNotice(null), notificationSeconds * 1_000)
     return () => clearTimeout(timer)
   }, [notice, notificationSeconds])
@@ -448,8 +454,14 @@ export function SemanticPanel(props: PanelProps) {
       setNotice({ kind: 'success', text: t('state.saved') })
       await scanPath(effectivePath)
     } catch (error) {
-      setEditorIssues(issuesOf(error))
-      setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issuesOf(error)), issues: issuesOf(error) })
+      const issues = issuesOf(error)
+      setEditorIssues(issues)
+      // The form renders every positioned issue itself. Repeating the same
+      // refusal in the bottom dock only competes with it, so the dock is kept
+      // for failures the form cannot explain (no issues, e.g. an unreachable
+      // host).
+      if (issues.length > 0) setNotice(null)
+      else setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issues), issues })
     } finally {
       setBusy(null)
     }
@@ -469,8 +481,12 @@ export function SemanticPanel(props: PanelProps) {
       setNotice({ kind: 'success', text: t('state.saved') })
       await scanPath(effectivePath)
     } catch (error) {
-      setEditorIssues(issuesOf(error))
-      setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issuesOf(error)), issues: issuesOf(error) })
+      const issues = issuesOf(error)
+      setEditorIssues(issues)
+      // The raw editor renders positioned issues in place; an error banner would
+      // repeat them, so it is reserved for failures with no form to point at.
+      if (issues.length > 0) setNotice(null)
+      else setNotice({ kind: 'error', text: saveFailureText(error, 'state.saveFailed', issues), issues })
     } finally {
       setBusy(null)
     }
@@ -563,7 +579,7 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [effectivePath, notReady, scanPath])
 
-  /** Re-add previously removed exceptions, for the notice's undo action. */
+  /** Re-add previously removed exceptions, for the footer badge's undo action. */
   const restoreExceptions = useCallback(async (
     conceptId: string,
     exceptions: readonly AcceptedException[],
@@ -633,7 +649,7 @@ export function SemanticPanel(props: PanelProps) {
       // No echo at all means the optimistic value stands; otherwise the echo wins.
       const applied = appliedAnnounce(response)
       if (applied !== undefined) setAnnouncePreview(applied)
-      setNotice({ kind: 'success', text: t('state.settingsSaved') })
+      setNotice({ kind: 'success', text: t('state.saved') })
     } catch (error) {
       setAnnouncePreview(before)
       setNotice({
@@ -890,7 +906,7 @@ export function SemanticPanel(props: PanelProps) {
   return (
     <div className="sd-root">
       <style>{PANEL_CSS}</style>
-      <header className="sd-header">
+      <header className="sd-header" data-window-drag>
         <div className="sd-heading">
           <div className="sd-title">{t('panel.title')}</div>
           <div className="sd-subtitle" title={effectivePath ?? ''}>
@@ -930,6 +946,22 @@ export function SemanticPanel(props: PanelProps) {
         >
           {auto ? <FollowIcon /> : <PinIcon />}
         </button>
+        <div className="sd-announce" data-tip={t('header.announceTip')}>
+          <span className="sd-announce-label">{t('header.announce')}</span>
+          <button
+            type="button"
+            className="sd-switch"
+            role="switch"
+            aria-checked={announceOn}
+            aria-label={t('settings.announceToAgent')}
+            disabled={state?.effective === undefined || announceSaving || busy !== null}
+            onClick={() => void toggleAnnounce()}
+          >
+            <span className="sd-switch-track" data-on={announceOn}>
+              <span className="sd-switch-knob" />
+            </span>
+          </button>
+        </div>
         <div className="sd-actions">
           <button
             type="button"
@@ -981,13 +1013,36 @@ export function SemanticPanel(props: PanelProps) {
         </div>
       </header>
 
+      {notice?.kind === 'error' && (
+        <div className="sd-banner-dock">
+          <Banner
+            kind="error"
+            onDismiss={() => setNotice(null)}
+            action={state === null
+              ? (
+                  <button
+                    type="button"
+                    className="sd-button"
+                    onClick={() => void load(requested ?? suggested)}
+                  >
+                    <RefreshIcon />
+                    {t('action.retry')}
+                  </button>
+                )
+              : undefined}
+          >
+            <div>{notice.text}</div>
+            {notice.issues !== undefined && notice.issues.length > 0 && (
+              <IssueList issues={notice.issues} limit={6} />
+            )}
+          </Banner>
+        </div>
+      )}
+
       {scan === null && state?.vocabulary.exists === true && (
-        <div className="sd-notice-dock" style={{ paddingTop: 6 }}>
-          <div className="sd-notice" data-kind="info">
-            <div className="sd-notice-head" style={{ alignItems: 'center' }}>
-              <span className="sd-notice-text">
-                <strong>{t('scan.never')}</strong> · {t('scan.neverHint')}
-              </span>
+        <div className="sd-banner-dock">
+          <Banner
+            action={(
               <button
                 type="button"
                 className="sd-button"
@@ -997,8 +1052,10 @@ export function SemanticPanel(props: PanelProps) {
                 <RefreshIcon />
                 {t('action.rescan')}
               </button>
-            </div>
-          </div>
+            )}
+          >
+            <strong>{t('scan.never')}</strong> · {t('scan.neverHint')}
+          </Banner>
         </div>
       )}
 
@@ -1032,9 +1089,10 @@ export function SemanticPanel(props: PanelProps) {
         />
         <section className="sd-detail">
           {invalid && view.kind !== 'raw' && (
-            <div className="sd-notice" data-kind="error">
-              <div className="sd-spread">
-                <span>{vocabularyHealth === 'error' ? t('issue.title') : ''} {vocabulary?.relativeFile}</span>
+            <Banner
+              kind="error"
+              className="sd-banner-detail"
+              action={(
                 <button
                   type="button"
                   className="sd-button"
@@ -1046,25 +1104,17 @@ export function SemanticPanel(props: PanelProps) {
                   <CodeIcon />
                   {t('action.yaml')}
                 </button>
+              )}
+            >
+              <div className="sd-banner-title">
+                {vocabularyHealth === 'error' ? t('issue.title') : ''} {vocabulary?.relativeFile}
               </div>
               <IssueList issues={issuesOfVocabulary.filter(issue => issue.severity === 'error')} limit={8} />
-            </div>
+            </Banner>
           )}
           {renderDetail()}
         </section>
       </div>
-
-      {notice !== null && (
-        <div className="sd-notice-dock">
-          <Notice
-            notice={notice}
-            onDismiss={() => setNotice(null)}
-            {...(notice.kind === 'error' && state === null
-              ? { onRetry: () => void load(requested ?? suggested) }
-              : {})}
-          />
-        </div>
-      )}
 
       <footer className="sd-footer">
         <span>
@@ -1113,6 +1163,28 @@ export function SemanticPanel(props: PanelProps) {
         )}
         {scan?.summary.truncated === true && (
           <span title={scan.summary.truncatedReason ?? ''}>⚠ {t('footer.truncated')}</span>
+        )}
+        {notice?.kind === 'success' && (
+          <span className="sd-footer-feedback" aria-live="polite">
+            <button
+              type="button"
+              className="sd-badge-success"
+              title={`${t('feedback.dismissHint')} · ${notice.text}`}
+              aria-label={`${notice.text} · ${t('feedback.dismissHint')}`}
+              onClick={() => setNotice(null)}
+            >
+              {notice.text}
+            </button>
+            {notice.action !== undefined && (
+              <button
+                type="button"
+                className="sd-badge-ghost"
+                onClick={() => notice.action?.run()}
+              >
+                {notice.action.label}
+              </button>
+            )}
+          </span>
         )}
         <span className="sd-spacer" />
         {state !== null && <span className="sd-meta">v{state.version}</span>}
@@ -1245,29 +1317,7 @@ export function SemanticPanel(props: PanelProps) {
                 </div>
               </section>
 
-              <section className="sd-settings-section">
-                <div className="sd-settings-title">{t('settings.groupAgent')}</div>
-                <div className="sd-setting-row">
-                  <div className="sd-setting-main">
-                    <div className="sd-setting-name">{t('settings.announceToAgent')}</div>
-                    <div className="sd-setting-hint">{t('settings.announceHint')}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="sd-switch"
-                    role="switch"
-                    aria-checked={announceOn}
-                    aria-label={t('settings.announceToAgent')}
-                    disabled={state?.effective === undefined || announceSaving || busy !== null}
-                    onClick={() => void toggleAnnounce()}
-                  >
-                    <span className="sd-switch-track" data-on={announceOn}>
-                      <span className="sd-switch-knob" />
-                    </span>
-                  </button>
-                </div>
-                <div className="sd-settings-note">{t('settings.movedHint')}</div>
-              </section>
+              <div className="sd-settings-note">{t('settings.movedHint')}</div>
             </div>
           </div>
         </div>

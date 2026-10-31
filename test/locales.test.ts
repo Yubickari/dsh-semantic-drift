@@ -21,7 +21,7 @@ test('both dictionaries carry exactly the same keys', () => {
 test('a Chinese document language renders Chinese copy', () => {
   assert.equal(t('tree.title'), '概念')
   assert.equal(t('action.accept'), '接受')
-  assert.equal(t('notice.dismissHint'), '双击关闭')
+  assert.equal(t('feedback.dismissHint'), '点击关闭')
 })
 
 test('host validation codes have a localized headline', () => {
