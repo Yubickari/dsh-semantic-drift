@@ -6,7 +6,7 @@ Read this only after the user has explicitly asked for a release. Replace
 ## 0. Preconditions
 
 ```bash
-cd /Users/lijiajian/Code/dsh-semantic-drift
+cd "$(git rev-parse --show-toplevel)"   # the dsh-semantic-drift checkout
 git status --short                 # must be clean apart from changes being committed
 git switch main
 git pull --ff-only
