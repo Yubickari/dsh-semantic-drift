@@ -32,7 +32,7 @@ import { createWorkspaceResolver, workspaceKey } from './workspace.ts'
 export { Config }
 
 /** Package version, kept in sync with package.json by a test. */
-export const VERSION = '0.1.6-pre.3'
+export const VERSION = '0.1.6'
 
 /**
  * Services this plugin cannot work without.

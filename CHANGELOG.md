@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.6
+
+An interaction pass across the panel and the agent-prompt switch.
+
+- **Required concept fields** — `id`, `terms`, `kind` and `canonical.symbol` carry
+  the dark-red asterisk and `aria-required`; the optional type, unit and note keep
+  their "(optional)" labels. A refused save keeps its positioned issues in the
+  form and does not repeat them in a banner or badge.
+- **Feedback channels are now final** — success confirmations (**Save**, copy,
+  accept, restore) use the filled footer badge treatment shared with the state
+  markers; click to dismiss, or let the **Notifications close after** setting close
+  it. Operation failures that need detail use dismissible banners with their
+  issues and, where useful, retry. There is no toast.
+- **Prompt injection moved to the header** — the switch sits beside the workspace
+  mode and is stored per workspace in the hidden `announceByWorkspace` map on the
+  plugin row. Workspaces without an entry keep the `announceToAgent` default. The
+  settings dialog is down to three groups.
+- **macOS window chrome** — the header pads by `--dsh-frame-top-clearance` and
+  marks itself `data-window-drag`, so its title clears the traffic lights and the
+  collapsed-sidebar controls while the blank header strip stays draggable.
+
 ## 0.1.6-pre.3
 
 Same internal 0.1.6 pass; this corrects the feedback channel chosen in pre.2.
