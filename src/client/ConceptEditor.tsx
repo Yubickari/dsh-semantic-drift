@@ -30,14 +30,19 @@ function RequiredMark() {
 export interface ConceptEditorProps {
   /** Existing concept to edit, or `undefined` for a new one. */
   concept: Concept | undefined
-  /** Pre-filled id for a new concept (the tree's group add uses `<group>.`). */
+  /** Pre-filled id for a new concept (the tree's branch add uses `<prefix>.`). */
   initialId?: string
   /** Pre-filled canonical symbol for a new concept (a promoted finding uses it). */
   initialSymbol?: string
   /** Issues from the last failed save. */
   issues: readonly ValidationIssue[]
   saving: boolean
-  onSave: (concept: Concept) => void
+  /**
+   * `originalId` is the id the entry had when the form opened. The panel needs
+   * it to replace the right entry when the user renames the concept; the new
+   * `concept.id` alone cannot find the old one.
+   */
+  onSave: (concept: Concept, originalId?: string) => void
   onCancel: () => void
 }
 
@@ -68,7 +73,7 @@ export function ConceptEditor(props: ConceptEditorProps) {
       ...(note.trim() === '' ? {} : { note: note.trim() }),
       ...(props.concept?.accepted === undefined ? {} : { accepted: props.concept.accepted }),
     }
-    props.onSave(concept)
+    props.onSave(concept, props.concept?.id)
   }
 
   return (
@@ -85,11 +90,12 @@ export function ConceptEditor(props: ConceptEditorProps) {
           value={id}
           onChange={event => setId(event.target.value)}
           placeholder="device.target_temperature"
-          disabled={props.concept !== undefined}
           spellCheck={false}
           aria-required="true"
         />
-        <span className="sd-hint">{t('editor.idHint')}</span>
+        <span className="sd-hint">
+          {props.concept === undefined ? t('editor.idHint') : t('editor.idRenameHint')}
+        </span>
       </div>
 
       <div className="sd-field">

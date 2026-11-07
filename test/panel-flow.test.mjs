@@ -603,8 +603,8 @@ test('deleting a concept asks first, then saves the document without it', async 
   try {
     const { container, root } = mountPanel()
     await flush(8)
-    const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('device.module_name') === false && button.textContent?.includes('module_name'))
-    assert.ok(item !== undefined, 'the concept must be listed in the tree')
+    const item = container.querySelector('.sd-tree-list button[title="device.module_name"]')
+    assert.ok(item !== null, 'the concept must be listed in the tree')
     click(item)
     await flush()
 
@@ -1427,4 +1427,187 @@ test('the settings dialog groups its rows and drops the project and version bloc
   assert.equal(container.querySelector('.sd-settings'), null, 'the backdrop still dismisses the dialog')
   reactAct(() => root.unmount())
   resetPrefs()
+})
+
+test('renaming a concept replaces it instead of adding a second entry', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const saves = []
+  const renameState = {
+    ...STATE,
+    vocabulary: {
+      ...STATE.vocabulary,
+      document: {
+        ...STATE.vocabulary.document,
+        concepts: [{
+          ...CONCEPT,
+          accepted: [{ symbol: 'LegacyModuleName', path: 'src/legacy/**', reason: 'kept for one release' }],
+        }],
+      },
+    },
+  }
+  const json = (body, status = 200) => new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url)
+    if (href.includes('/state')) return json(renameState)
+    if (href.includes('/scan')) {
+      return json({
+        ok: true,
+        workspace: { path: '/tmp/sample-app' },
+        summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp/sample-app', startedAt: 0 },
+        vocabularyIssues: [],
+      })
+    }
+    if (href.includes('/save')) {
+      const body = JSON.parse(String(init.body ?? '{}'))
+      saves.push(body)
+      return json({ ok: true, vocabulary: { ...STATE.vocabulary, document: body.document } })
+    }
+    return json({ ok: false, code: 'unexpected', message: 'not stubbed' }, 500)
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('module_name'))
+    assert.ok(item !== undefined, 'the concept must be in the tree')
+    click(item)
+    await flush(2)
+
+    const edit = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '编辑')
+    assert.ok(edit !== undefined, 'the detail must offer edit')
+    click(edit)
+    await flush(2)
+
+    const idInput = container.querySelector('#sd-id')
+    assert.ok(idInput !== null, 'the editor must have an id field')
+    assert.equal(idInput.value, 'device.module_name')
+    assert.equal(idInput.disabled, false, 'an existing id must be editable')
+
+    type('#sd-id', 'device.module_label')
+    const save = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '保存')
+    assert.ok(save !== undefined, 'the save button must exist')
+    click(save)
+    await flush(10)
+
+    assert.equal(saves.length, 1, 'one save must be sent')
+    const concepts = saves[0].document.concepts
+    assert.equal(concepts.length, 1, 'a rename must not leave the old entry behind')
+    assert.equal(concepts[0].id, 'device.module_label')
+    assert.equal(concepts.some(concept => concept.id === 'device.module_name'), false)
+    assert.equal(concepts[0].terms[0], '设备模块名称', 'the other fields survive the rename')
+    assert.equal(concepts[0].accepted?.[0]?.symbol, 'LegacyModuleName', 'accepted exceptions stay with the concept')
+    assert.match(container.textContent ?? '', /device\.module_label/, 'the detail follows the new id')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('a nested branch add pre-fills the parent path', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const nestedState = {
+    ...STATE,
+    vocabulary: {
+      ...STATE.vocabulary,
+      document: {
+        ...STATE.vocabulary.document,
+        concepts: [
+          CONCEPT,
+          { ...CONCEPT, id: 'device.sensor.rate', terms: ['采样率'], canonical: { symbol: 'SensorRate' } },
+        ],
+      },
+    },
+  }
+  const json = body => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+  globalThis.fetch = async url => {
+    if (String(url).includes('/state')) return json(nestedState)
+    return json({
+      ok: true,
+      workspace: { path: '/tmp/sample-app' },
+      summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp/sample-app', startedAt: 0 },
+      vocabularyIssues: [],
+    })
+  }
+  try {
+    const { container, root } = mountPanel()
+    await flush(8)
+    const add = container.querySelector('[aria-label="在本组新建概念 device.sensor"]')
+    assert.ok(add !== null, 'the nested branch must offer an add button')
+    click(add)
+    await flush(2)
+
+    const idInput = container.querySelector('#sd-id')
+    assert.ok(idInput !== null, 'the editor must open')
+    assert.equal(idInput.value, 'device.sensor.', 'the branch path must be the id prefix')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
+})
+
+test('switching workspace closes the open editor and drops its unsaved fields', async () => {
+  resetPrefs()
+  const realFetch = globalThis.fetch
+  const json = body => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+  globalThis.fetch = async url => {
+    const href = String(url)
+    if (href.includes('/state')) {
+      const workspace = new URL(href, 'http://placeholder/').searchParams.get('workspace') ?? '/tmp/default'
+      return json({
+        ...STATE,
+        workspace: { path: workspace, title: workspace.split('/').at(-1), resolvedFrom: 'request' },
+      })
+    }
+    if (href.includes('/scan')) {
+      return json({
+        ok: true,
+        workspace: { path: '/tmp' },
+        summary: { findings: [], counts: {}, filesScanned: 0, filesSkipped: 0, bytesScanned: 0, durationMs: 1, truncated: false, skippedTypes: 0, root: '/tmp', startedAt: 0 },
+        vocabularyIssues: [],
+      })
+    }
+    return json({ ok: true, vocabulary: STATE.vocabulary })
+  }
+  try {
+    let cwd = '/tmp/ws-a'
+    const props = () => ({ useSessions: selector => selector({ current: 's1', byId: { s1: { cwd } } }) })
+    const { container, root, rerender } = mountPanel(props())
+    await flush(8)
+
+    const item = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('module_name'))
+    assert.ok(item !== undefined, 'the concept must be in the tree')
+    click(item)
+    await flush(2)
+    const edit = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '编辑')
+    assert.ok(edit !== undefined, 'the detail must offer edit')
+    click(edit)
+    await flush(2)
+    assert.ok(container.querySelector('.sd-form') !== null, 'the editor must be open')
+    type('#sd-id', 'device.unsaved_name')
+    assert.equal(container.querySelector('#sd-id')?.value, 'device.unsaved_name')
+
+    cwd = '/tmp/ws-b'
+    rerender(props())
+    await flush(10)
+
+    assert.equal(container.querySelector('.sd-form'), null, 'a workspace switch closes the editor')
+    assert.equal(container.querySelector('#sd-id'), null, 'the unsaved fields are gone')
+    assert.match(container.textContent ?? '', /ws-b/, 'the new workspace is on screen')
+    reactAct(() => root.unmount())
+  } finally {
+    globalThis.fetch = realFetch
+    resetPrefs()
+  }
 })

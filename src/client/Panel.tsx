@@ -295,6 +295,10 @@ export function SemanticPanel(props: PanelProps) {
     setScan(null)
     setScanAt(null)
     setScanMtime(undefined)
+    // An editor belongs to the workspace it was opened on. Switching leaves it
+    // without a target, so the form closes and its unsaved fields are dropped.
+    setView({ kind: 'browse' })
+    setEditorIssues([])
     // A concept of the previous workspace is not this workspace's concept.
     setSelection({ kind: 'none' })
     if (!auto || !autoScan) return
@@ -432,7 +436,7 @@ export function SemanticPanel(props: PanelProps) {
     }
   }, [effectivePath, scanPath])
 
-  const submitConcept = useCallback(async (concept: Concept) => {
+  const submitConcept = useCallback(async (concept: Concept, originalId?: string) => {
     if (effectivePath === undefined || vocabulary === undefined) {
       notReady()
       return
@@ -440,11 +444,14 @@ export function SemanticPanel(props: PanelProps) {
     setBusy('save')
     setEditorIssues([])
     try {
-      const exists = concepts.some(entry => entry.id === concept.id)
+      // A rename is a replace, not an insert: the editor's new id cannot find
+      // the entry the user opened, so the old id is the lookup key.
+      const targetId = originalId ?? concept.id
+      const index = concepts.findIndex(entry => entry.id === targetId)
       const document = {
         ...vocabulary.document,
-        concepts: exists
-          ? concepts.map(entry => (entry.id === concept.id ? concept : entry))
+        concepts: index >= 0
+          ? concepts.map((entry, position) => (position === index ? concept : entry))
           : [...concepts, concept],
       }
       const result = await saveDocument(effectivePath, document)
@@ -827,7 +834,7 @@ export function SemanticPanel(props: PanelProps) {
           initialSymbol={view.initialSymbol}
           issues={editorIssues}
           saving={busy === 'save'}
-          onSave={concept => void submitConcept(concept)}
+          onSave={(concept, originalId) => void submitConcept(concept, originalId)}
           onCancel={() => {
             setView({ kind: 'browse' })
             setEditorIssues([])
@@ -1078,12 +1085,12 @@ export function SemanticPanel(props: PanelProps) {
             setSelection({ kind: 'unclassified' })
             setView({ kind: 'browse' })
           }}
-          onAdd={group => {
+          onAdd={prefix => {
             setEditorIssues([])
             setView({
               kind: 'edit',
               concept: undefined,
-              ...(group === undefined ? {} : { initialId: `${group}.` }),
+              ...(prefix === undefined ? {} : { initialId: `${prefix}.` }),
             })
           }}
         />

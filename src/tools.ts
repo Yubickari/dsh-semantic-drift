@@ -122,7 +122,7 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
       '`hasDrift` is expensive: it runs a scan and returns each concept\'s finding count.',
     ].join(' '),
     parameters: {
-      group: { type: 'string', description: 'Only concepts whose id starts with this group, e.g. "device".' },
+      group: { type: 'string', description: 'Only concepts whose id starts with this group or branch prefix, e.g. "device" or "device.sensor".' },
       query: { type: 'string', description: 'Case-insensitive match against id, terms and canonical symbol.' },
       hasDrift: { type: 'boolean', description: 'Run a scan and keep only concepts with findings (costs one scan).' },
     },
