@@ -26,6 +26,7 @@ DSH shows the plugin as **Semantic Drift Vocabulary** (语义漂移词表).
   - [Guarantees](#guarantees)
   - [Limits](#limits)
   - [Development](#development)
+- [Roadmap](#roadmap)
 - [License](#license)
 
 ## Where it comes from
@@ -159,7 +160,7 @@ meta:
   updated: 2026-10-25
 exclude: ["**/node_modules/**", "**/bin/**", "**/obj/**"]
 concepts:
-  - id: device.target_temperature      # group.name, unique
+  - id: device.target_temperature      # a.b, unique; at least two segments
     terms: ["target temperature", "set point"]   # what humans call it
     kind: quantity                     # entity | quantity | enum | status | reference
     canonical:
@@ -179,7 +180,8 @@ comments, strings and resource files.
 Validation runs before every write; a document that fails is never written, and the
 reported issue carries the YAML line or the document path:
 
-* `id` must be unique and look like `group.name`;
+* `id` must be unique and have at least two lowercase, dot-separated segments
+  (`a.b`);
 * `canonical.symbol` must be a plain identifier and unique across concepts;
 * `terms` must be non-empty and cannot be shared between two concepts;
 * every `accepted` entry needs a `reason`;
@@ -264,8 +266,10 @@ The loop this is built for:
 
 ### The panel
 
-- **Left tree** — concepts grouped by id prefix, a finding count per group, a group
-  add button, search, and a quick-create button.
+- **Left tree** — concepts as a tree over every id segment (`a.b.c` nests under
+  `a` and `a.b`), a two-line row (the current id segment, then the canonical
+  symbol), a concept count per branch, aggregated finding counts, a branch add
+  button, search, and a quick-create button.
 - **Concept detail** — the fields, the findings attributed to the concept, and its
   accepted exceptions with **Edit**, **Remove** and (when there is more than one)
   **Clear all**. A row reads "mutes N now"; 0 means the scope matches nothing, which
@@ -439,6 +443,14 @@ called in another — a class of bug a bundler ships happily.
 
 Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md), including the rule that no
 real project may be identifiable anywhere in this repository.
+
+## Roadmap
+
+0.2.0 makes the vocabulary editable and hierarchical. The next planned step is
+**behavior drift**: a deterministic function index plus agent-authored semantic
+summaries, with a human review queue. The implementation plan, validation-repo
+selection and acceptance criteria are in
+[docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md) (Chinese).
 
 ## License
 

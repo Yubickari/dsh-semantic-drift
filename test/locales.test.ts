@@ -25,7 +25,7 @@ test('a Chinese document language renders Chinese copy', () => {
 })
 
 test('host validation codes have a localized headline', () => {
-  assert.equal(maybeT('issue.id-format'), '概念 id 格式不对：需形如 group.name')
+  assert.equal(maybeT('issue.id-format'), '概念 id 格式不对：需为小写点分段，至少两段（如 a.b）')
   assert.equal(maybeT('issue.symbol-duplicate'), '规范符号重复：一个符号只能属于一个概念')
   assert.equal(maybeT('api.invalid-vocabulary'), '词表校验未通过')
   assert.equal(maybeT('issue.no-such-code'), undefined, 'unknown codes fall back to the host message')

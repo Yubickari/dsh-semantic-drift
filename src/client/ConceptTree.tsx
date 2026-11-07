@@ -1,14 +1,25 @@
 /**
- * Left column: concepts grouped by the first segment of their id.
+ * Left column: concepts as a tree over the dot-separated id segments.
  *
- * The tree owns collapsing only; search, the drift filter and the drift counts
- * are passed in, so the panel stays the single owner of "what is visible".
+ * The vocabulary store already accepts any number of segments (`a.b.c`), so the
+ * only thing this component owns is presentation: a trie built from the filtered
+ * concepts, an expand/collapse state keyed by full path, and an add button on
+ * every branch that pre-fills the next segment.
+ *
+ * A node can be both a concept and a branch. Its row selects the concept, while
+ * the caret beside it expands the children, so `device.temperature` and
+ * `device.temperature.target` can both be reached.
+ *
+ * Search, the drift filter and the drift counts are passed in, so the panel
+ * stays the single owner of "what is visible".
  *
  * @module dsh-semantic-drift/client/ConceptTree
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Concept } from '../protocol.ts'
+import { buildConceptTree } from './concept-tree.ts'
+import type { ConceptTreeNode } from './concept-tree.ts'
 import { t } from './locales.ts'
 import { CaretIcon, PlusIcon, SearchIcon } from './icons.tsx'
 
@@ -25,35 +36,125 @@ export interface ConceptTreeProps {
   showUnclassified: boolean
   onSelect: (id: string) => void
   onSelectUnclassified: () => void
-  /** Open the new-concept editor; a group pre-fills the id prefix. */
-  onAdd: (group?: string) => void
+  /** Open the new-concept editor; a branch pre-fills its id prefix. */
+  onAdd: (prefix?: string) => void
 }
 
-interface Group {
-  name: string
-  concepts: Concept[]
+/** One row and its descendants. */
+interface BranchProps {
+  node: ConceptTreeNode
+  depth: number
+  isOpen: (path: string) => boolean
+  selectedId: string | null
+  onToggle: (path: string) => void
+  onSelect: (id: string) => void
+  onAdd: (prefix: string) => void
 }
 
-function groupConcepts(concepts: readonly Concept[]): Group[] {
-  const groups = new Map<string, Concept[]>()
-  for (const concept of concepts) {
-    const name = concept.id.split('.')[0] ?? 'other'
-    const list = groups.get(name)
-    if (list === undefined) groups.set(name, [concept])
-    else list.push(concept)
-  }
-  return [...groups.entries()]
-    .map(([name, list]) => ({ name, concepts: list }))
-    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+function Branch(props: BranchProps) {
+  const { node, depth } = props
+  const open = props.isOpen(node.path)
+  const hasChildren = node.children.length > 0
+  const concept = node.concept
+  const active = concept !== undefined && props.selectedId === concept.id
+  const rowClass = depth === 0 ? 'sd-group-row' : 'sd-node-row'
+  const labelClass = depth === 0 ? 'sd-group-head' : 'sd-node-label'
+  // A concept at an intermediate node is one of its own subtree entries; the
+  // badge the user reads is the number of child ids, not the subtree total.
+  const childCount = node.count - (concept === undefined ? 0 : 1)
+  const showCount = concept === undefined || hasChildren
+
+  return (
+    <div className={depth === 0 ? 'sd-group' : 'sd-node'}>
+      <div
+        className={rowClass}
+        data-selected={active ? 'true' : undefined}
+        style={depth === 0 ? undefined : { paddingLeft: 4 + (depth - 1) * 12 }}
+      >
+        {hasChildren ? (
+          <button
+            type="button"
+            className="sd-caret-button"
+            aria-expanded={open}
+            aria-label={`${open ? t('tree.collapse') : t('tree.expand')} ${node.path}`}
+            onClick={() => props.onToggle(node.path)}
+          >
+            <span className="sd-caret" data-open={open}>
+              <CaretIcon />
+            </span>
+          </button>
+        ) : (
+          <span className="sd-caret-spacer" aria-hidden="true" />
+        )}
+        <button
+          type="button"
+          className={labelClass}
+          data-active={active ? 'true' : undefined}
+          title={node.path}
+          onClick={() => {
+            if (concept !== undefined) props.onSelect(concept.id)
+            else props.onToggle(node.path)
+          }}
+        >
+          <span className="sd-node-text">
+            <span className="sd-node-line">
+              <span className="sd-node-id">{node.segment}</span>
+              <span className="sd-node-badges">
+                {showCount && <span className="sd-count">{childCount}</span>}
+                {node.drift > 0 && <span className="sd-count" data-tone="warn">{node.drift}</span>}
+              </span>
+            </span>
+            {concept !== undefined && (
+              <span className="sd-node-symbol">{concept.canonical.symbol}</span>
+            )}
+          </span>
+        </button>
+        {hasChildren && (
+          <button
+            type="button"
+            className="sd-add"
+            title={t('tree.addInGroup')}
+            aria-label={`${t('tree.addInGroup')} ${node.path}`}
+            onClick={() => props.onAdd(node.path)}
+          >
+            <PlusIcon size={depth === 0 ? 13 : 12} />
+          </button>
+        )}
+      </div>
+      {open && hasChildren && (
+        <div className={depth === 0 ? 'sd-group-children' : 'sd-node-children'}>
+          {node.children.map(child => (
+            <Branch
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              isOpen={props.isOpen}
+              selectedId={props.selectedId}
+              onToggle={props.onToggle}
+              onSelect={props.onSelect}
+              onAdd={props.onAdd}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function ConceptTree(props: ConceptTreeProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const groups = groupConcepts(props.concepts)
+  const tree = useMemo(
+    () => buildConceptTree(props.concepts, props.driftCounts),
+    [props.concepts, props.driftCounts],
+  )
+  const searching = props.query.trim() !== ''
 
-  const toggle = (name: string) => {
-    setCollapsed(current => ({ ...current, [name]: current[name] !== true }))
+  const toggle = (path: string) => {
+    setCollapsed(current => ({ ...current, [path]: current[path] !== true }))
   }
+
+  /** Search must reveal what matched, even inside a branch collapsed earlier. */
+  const isOpen = (path: string): boolean => searching || collapsed[path] !== true
 
   return (
     <aside className="sd-tree">
@@ -98,56 +199,24 @@ export function ConceptTree(props: ConceptTreeProps) {
         </div>
       </div>
       <div className="sd-tree-list">
-        {groups.length === 0 && (
+        {tree.length === 0 && (
           <div className="sd-empty" style={{ minHeight: 120, padding: 16 }}>
             <div className="sd-empty-title">{t('tree.empty')}</div>
             <div>{t('tree.emptyHint')}</div>
           </div>
         )}
-        {groups.map(group => {
-          const open = collapsed[group.name] !== true
-          return (
-            <div className="sd-group" key={group.name}>
-              <div className="sd-group-row">
-                <button type="button" className="sd-group-head" onClick={() => toggle(group.name)}>
-                  <span className="sd-caret" data-open={open}>
-                    <CaretIcon />
-                  </span>
-                  {group.name}
-                  <span className="sd-count">{group.concepts.length}</span>
-                </button>
-                <button
-                  type="button"
-                  className="sd-add"
-                  title={t('tree.addInGroup')}
-                  aria-label={t('tree.addInGroup')}
-                  onClick={() => props.onAdd(group.name)}
-                >
-                  <PlusIcon size={13} />
-                </button>
-              </div>
-              {open && group.concepts.map(concept => {
-                const drift = props.driftCounts.get(concept.id) ?? 0
-                return (
-                  <button
-                    key={concept.id}
-                    type="button"
-                    className="sd-item"
-                    data-active={props.selectedId === concept.id}
-                    onClick={() => props.onSelect(concept.id)}
-                    title={concept.id}
-                  >
-                    <span className="sd-item-name">{concept.id.split('.').slice(1).join('.') || concept.id}</span>
-                    <span className="sd-item-symbol">{concept.canonical.symbol}</span>
-                    {drift > 0 && (
-                      <span className="sd-count" data-tone="warn">{drift}</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          )
-        })}
+        {tree.map(node => (
+          <Branch
+            key={node.path}
+            node={node}
+            depth={0}
+            isOpen={isOpen}
+            selectedId={props.selectedId}
+            onToggle={toggle}
+            onSelect={props.onSelect}
+            onAdd={props.onAdd}
+          />
+        ))}
         {props.showUnclassified && (
           <div className="sd-group">
             <button

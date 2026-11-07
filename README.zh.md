@@ -24,6 +24,7 @@ DSH 中显示的名字是 **语义漂移词表**（英文 Semantic Drift Vocabul
   - [保证](#保证)
   - [限制](#限制)
   - [开发](#开发)
+- [路线图](#路线图)
 - [许可](#许可)
 
 ## 这个想法从哪来
@@ -118,7 +119,7 @@ meta:
   updated: 2026-10-25
 exclude: ["**/node_modules/**", "**/bin/**", "**/obj/**"]
 concepts:
-  - id: device.target_temperature      # group.name，全局唯一
+  - id: device.target_temperature      # a.b，全局唯一；至少两段
     terms: ["目标温度", "设定温度"]        # 人怎么称呼它
     kind: quantity                     # entity | quantity | enum | status | reference
     canonical:
@@ -136,7 +137,7 @@ concepts:
 
 写入前一定先校验；不通过就**不会写入**，并给出行号或文档路径：
 
-* `id` 唯一且形如 `group.name`；
+* `id` 唯一，且为小写点分段、至少两段（如 `a.b`）；
 * `canonical.symbol` 是合法标识符且全局唯一；
 * `terms` 非空，且不能被两个概念共用；
 * 每条 `accepted` 必须有 `reason`；
@@ -202,7 +203,7 @@ concepts:
 
 ### 面板
 
-- **左侧树**：概念按 id 前缀分组，组内有发现计数、组头有加号，顶部有搜索与快速新建。
+- **左侧树**：概念按 id 的每个点分段递归成树（`a.b.c` 挂在 `a`、`a.b` 下），概念行分两行（当前层级 id，再一行规范符号），分支显示子概念数与聚合发现数，分支头有加号，顶部有搜索与快速新建。
 - **概念详情**：字段、归属的发现、已接受例外——每行有 **编辑** 与 **移除**，超过一条时还有 **清空**。行上写"当前静音 N 条"；0 通常意味着范围什么都没匹配到。
 - **工具条**：纯图标的扫描、新建、YAML 原文、设置；悬停立即显示说明，也带无障碍标签。工具条是唯一的扫描入口，底栏只报告。
 - **工作区模式**：跟随时是准星，固定时是图钉，点一下切换。
@@ -310,6 +311,10 @@ pnpm build     # esbuild → lib/index.js（host）+ lib/client.js（浏览器�
 `tsc` 只覆盖浏览器半边：它能抓住"函数在一处被删掉、另一处还在调用"这类打包器会照单全收的 bug。
 
 贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，其中包含"任何真实项目都不得在本仓库任何地方被识别出来"这一条。
+
+## 路线图
+
+0.2.0 让词表可改名、概念树支持多级。下一步计划是**行为漂移**：确定性的函数索引 + Agent 生成语义摘要 + 人工审核队列。实现路径、验证仓库选型与验收标准见 [docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md)。
 
 ## 许可
 

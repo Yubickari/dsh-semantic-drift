@@ -43,7 +43,7 @@ export const DEFAULT_EXCLUDES = [
   '**/.venv/**',
 ]
 
-/** `group.concept`: at least one dot, lowercase snake segments. */
+/** `group.concept`: at least two dot-separated lowercase snake segments. */
 const CONCEPT_ID_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
 
 /** A canonical symbol must be a plain identifier. */
@@ -206,7 +206,7 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
       if (!CONCEPT_ID_PATTERN.test(id)) {
         issues.push({
           code: 'id-format',
-          message: `Concept id \`${id}\` must look like \`group.name\`: lowercase letters, digits and underscores, at least one dot.`,
+          message: `Concept id \`${id}\` must have at least two lowercase, dot-separated segments (e.g. \`a.b\`): letters, digits and underscores.`,
           severity: 'error',
           path: `${at}.id`,
           line: findLine(text, id),

@@ -151,6 +151,21 @@ test('the editor marks exactly the four required fields', () => {
   }
 })
 
+test('an existing concept can edit its id and is told a rename keeps exceptions', () => {
+  const html = render(createElement(ui.ConceptEditor, {
+    concept,
+    issues: [],
+    saving: false,
+    onSave: () => undefined,
+    onCancel: () => undefined,
+  }))
+  const idInput = /<input[^>]*id="sd-id"[^>]*>/.exec(html)?.[0] ?? ''
+  assert.equal(idInput.includes('disabled'), false, 'the id of an existing concept must stay editable')
+  assert.match(idInput, /value="sensor\.sensor_rate"/)
+  assert.match(html, /重命名/)
+  assert.match(html, /已接受的例外会保留/)
+})
+
 test('a banner is persistent page state with an action', () => {
   const html = render(createElement(ui.Banner, {
     kind: 'info',
@@ -201,6 +216,62 @@ test('the tree has a header add button and one per group', () => {
   assert.match(html, /本组新建概念/)
   assert.match(html, /data-active="true"/)
   assert.match(html, /未归类/)
+})
+
+test('the tree nests every id segment and adds only on branches', () => {
+  const target = { ...concept, id: 'device.temperature.target', canonical: { symbol: 'TargetTemperature' } }
+  const current = { ...concept, id: 'device.temperature.current', canonical: { symbol: 'CurrentTemperature' } }
+  const state = { ...concept, id: 'device.state', canonical: { symbol: 'DeviceState' } }
+  const html = render(createElement(ui.ConceptTree, {
+    concepts: [target, current, state],
+    selectedId: 'device.temperature.target',
+    query: '',
+    onQuery: () => undefined,
+    filter: 'all',
+    onFilter: () => undefined,
+    driftCounts: new Map([['device.temperature.target', 2], ['device.state', 1]]),
+    unclassified: 0,
+    showUnclassified: false,
+    onSelect: () => undefined,
+    onSelectUnclassified: () => undefined,
+    onAdd: () => undefined,
+  }))
+  assert.match(html, /title="device"/)
+  assert.match(html, /title="device\.temperature"/)
+  assert.match(html, /title="device\.temperature\.target"/)
+  assert.match(html, /aria-label="在本组新建概念 device"/)
+  assert.match(html, /aria-label="在本组新建概念 device\.temperature"/)
+  assert.doesNotMatch(
+    html,
+    /aria-label="在本组新建概念 device\.temperature\.target"/,
+    'a leaf concept is not a branch',
+  )
+  assert.match(html, /sd-node-children/)
+  assert.match(html, /data-active="true"/)
+})
+
+test('a concept that is also a branch keeps the child count on line one', () => {
+  const parent = { ...concept, id: 'device.temperature', canonical: { symbol: 'Temperature' } }
+  const child = { ...concept, id: 'device.temperature.target', canonical: { symbol: 'TargetTemperature' } }
+  const html = render(createElement(ui.ConceptTree, {
+    concepts: [parent, child],
+    selectedId: 'device.temperature',
+    query: '',
+    onQuery: () => undefined,
+    filter: 'all',
+    onFilter: () => undefined,
+    driftCounts: new Map([['device.temperature.target', 2]]),
+    unclassified: 0,
+    showUnclassified: false,
+    onSelect: () => undefined,
+    onSelectUnclassified: () => undefined,
+    onAdd: () => undefined,
+  }))
+  const label = /<button[^>]*title="device\.temperature"[^>]*>([\s\S]*?)<\/button>/.exec(html)?.[1] ?? ''
+  assert.match(label, /sd-node-id">temperature/, 'line one is the current tree level')
+  assert.match(label, /sd-node-symbol">Temperature/, 'line two is the canonical symbol')
+  assert.match(label, /sd-count">1</, 'the badge counts child ids, not the node itself')
+  assert.match(label, /data-tone="warn">2</, 'the drift badge still reports the subtree')
 })
 
 test('a derived copy and a renamed contract get their own labels', () => {
@@ -303,6 +374,29 @@ test('the light theme surface separates by border and keeps its text readable', 
   assert.match(groupTitle, /font-weight:\s*600/)
   assert.doesNotMatch(groupTitle, /uppercase/)
   assert.match(rule(PANEL_CSS, '.sd-switch-track'), /border:\s*1px solid/, 'an off switch must be visible on a white page')
+})
+
+test('tree rows share one hover surface and keep labels left-aligned', () => {
+  const hover = rule(PANEL_CSS, '.sd-group-row:hover, .sd-node-row:hover')
+  assert.match(hover, /background:\s*var\(--dsw-alias-interactive-bg-hover\)/, 'the theme hover token is visible in both themes')
+  assert.doesNotMatch(rule(PANEL_CSS, '.sd-caret-button:hover'), /background:/, 'the caret uses the row surface')
+  assert.doesNotMatch(rule(PANEL_CSS, '.sd-group-head:hover'), /background:/, 'the root label uses the row surface')
+  assert.doesNotMatch(rule(PANEL_CSS, '.sd-node-label:hover'), /background:/, 'a concept label uses the row surface')
+  const selected = rule(PANEL_CSS, ".sd-node-row[data-selected='true']")
+  assert.match(selected, /background:\s*var\(--dsw-alias-interactive-bg-active\)/, 'the selected row owns the tint')
+  assert.match(selected, /box-shadow:\s*inset/, 'the selected row gets a single edge')
+  assert.doesNotMatch(
+    rule(PANEL_CSS, ".sd-node-label[data-active='true']"),
+    /background:/,
+    'the selected label does not paint a second surface',
+  )
+  assert.match(rule(PANEL_CSS, '.sd-group-head'), /text-align:\s*left/)
+  assert.match(rule(PANEL_CSS, '.sd-node-text'), /text-align:\s*left/)
+  assert.match(rule(PANEL_CSS, '.sd-node-id'), /flex:\s*1/, 'the id takes the remaining width')
+  assert.match(rule(PANEL_CSS, '.sd-node-badges'), /flex:\s*none/, 'the counts stay at the right edge')
+  assert.match(rule(PANEL_CSS, '.sd-count'), /background:\s*var\(--dsw-alias-bg-module-platform\)/, 'count chips are visible in both themes')
+  assert.match(rule(PANEL_CSS, '.sd-node-badges .sd-count'), /height:\s*16px/, 'row chips are compact')
+  assert.match(rule(PANEL_CSS, '.sd-add'), /opacity:\s*\.4/, 'the add affordance is visible before hover')
 })
 
 test('the required asterisk is a theme-derived dark red', () => {

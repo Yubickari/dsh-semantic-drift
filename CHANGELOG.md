@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.2.0
+
+Vocabulary editing and hierarchy, without a format change.
+
+- **A concept id can be renamed from the panel.** The concept form no longer
+  locks the id field; saving a changed id replaces the entry the form was
+  opened on instead of appending a second one, and the accepted exceptions stay
+  with the concept. A duplicate new id is still refused with the usual
+  positioned issue, and the hint explains that the change is a rename.
+- **The concept tree follows every id segment.** Ids are no longer grouped only
+  by their first segment: `a.b.c` nests under `a` and `a.b`, each branch shows a
+  concept count and an aggregated drift count, and its **+** pre-fills the next
+  id segment. A node may be both a concept and a branch (`a.b` plus `a.b.c`);
+  its row selects the concept while the caret opens the children. Concept rows
+  use two lines — the current id segment, then the canonical symbol with a left
+  inset — while the counts stay at the right edge as compact chips. Selection is
+  one tinted surface across the whole row rather than a box around the label;
+  branch **+** buttons stay faintly visible before hover; and one theme-aware
+  row hover covers the caret and the label in both light and dark themes.
+  Search opens the matching path, and the add buttons stay limited to real
+  branches.
+- **Switching workspace closes the open editor.** A concept form or the raw YAML
+  editor belongs to the workspace it was opened on; when the panel moves to
+  another workspace, the editor closes and its unsaved fields are dropped
+  instead of being applied to the new workspace.
+- The id format guidance now says "at least two lowercase, dot-separated
+  segments (e.g. `a.b`)" in the store, the panel and both READMEs. The
+  vocabulary version stays `1`: this release changes presentation only.
+- **Behavior drift plan.** The #12 roadmap — agent-driven summaries,
+  deterministic function fingerprints, human review, schema v2 migration and
+  the validation-repo requirements — is written down in
+  [docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md).
+
 ## 0.1.6
 
 An interaction pass across the panel and the agent-prompt switch.
