@@ -47,6 +47,12 @@ export const Config = z.object({
     .volatile()
     .description('Per-workspace prompt-injection overrides, keyed by canonical workspace path. The panel writes this; the Configuration form hides it.'),
 
+  announceDetail: z
+    .union(['full', 'compact'])
+    .default('full')
+    .volatile()
+    .description('Detail of the injected vocabulary section: `full` includes each note, `compact` lists id and symbol only.'),
+
   citationStyle: z
     .union([...CITATION_STYLES])
     .default('file+symbol')

@@ -60,14 +60,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Read the concept lines of one vocabulary file, tolerating any hand edit. */
-function conceptLines(file: string): VocabularyBody {
+function conceptLines(file: string, detail: 'full' | 'compact'): VocabularyBody {
+  const cacheKey = `${file}\u0000${detail}`
   let info
   try {
     info = statSync(file)
   } catch {
     return { kind: 'missing' }
   }
-  const cached = cache.get(file)
+  const cached = cache.get(cacheKey)
   if (cached !== undefined && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
     return cached.body
   }
@@ -82,12 +83,12 @@ function conceptLines(file: string): VocabularyBody {
     raw = parseYaml(text)
   } catch (error) {
     const body: VocabularyBody = { kind: 'invalid', message: oneLine(error instanceof Error ? error.message : String(error)) }
-    cache.set(file, { mtimeMs: info.mtimeMs, size: info.size, body })
+    cache.set(cacheKey, { mtimeMs: info.mtimeMs, size: info.size, body })
     return body
   }
   if (!isRecord(raw) || !Array.isArray(raw.concepts)) {
     const body: VocabularyBody = { kind: 'invalid', message: 'the file is not a mapping with a `concepts` list' }
-    cache.set(file, { mtimeMs: info.mtimeMs, size: info.size, body })
+    cache.set(cacheKey, { mtimeMs: info.mtimeMs, size: info.size, body })
     return body
   }
   const concepts = raw.concepts.filter(isRecord) as Array<Record<string, unknown>>
@@ -97,6 +98,10 @@ function conceptLines(file: string): VocabularyBody {
     const canonical = isRecord(entry.canonical) ? entry.canonical : {}
     const symbol = typeof canonical.symbol === 'string' ? canonical.symbol : ''
     if (id === '' || symbol === '') continue
+    if (detail === 'compact') {
+      lines.push(`- ${id} -> ${symbol}`)
+      continue
+    }
     const kind = typeof entry.kind === 'string' && (CONCEPT_KINDS as readonly string[]).includes(entry.kind)
       ? (entry.kind as ConceptKind)
       : undefined
@@ -105,7 +110,7 @@ function conceptLines(file: string): VocabularyBody {
     lines.push(note === '' ? `- ${head}` : `- ${head}: ${note}`)
   }
   const body: VocabularyBody = { kind: 'concepts', lines, count: concepts.length }
-  cache.set(file, { mtimeMs: info.mtimeMs, size: info.size, body })
+  cache.set(cacheKey, { mtimeMs: info.mtimeMs, size: info.size, body })
   return body
 }
 
@@ -160,7 +165,7 @@ export function buildPromptText(ctx: unknown, config: SemanticConfig, workspace:
     // The panel writes one override per workspace; only this workspace's
     // vocabulary may be injected, so the default is a fallback, never a veto.
     if (!announceEnabled(config.announceToAgent, config.announceByWorkspace, workspaceKey(workspacePath))) return ''
-    const lines = conceptLines(file)
+    const lines = conceptLines(file, config.announceDetail)
     if (lines.kind === 'missing') {
       body = [
         '',

@@ -174,6 +174,11 @@ concepts:
         reason: public field kept for one release
 ```
 
+A new vocabulary starts with a default `exclude` list (build outputs, package caches,
+`.git`, and so on). From 0.2.1 it also includes `.nuget/**`, `artifacts/**`,
+`.tmp/**`, `TestResults/**` and `BenchmarkDotNet.Artifacts/**`; an existing
+vocabulary keeps its own `exclude` and is never rewritten.
+
 `terms` may be written in any language: the scanner matches them as plain text in
 comments, strings and resource files.
 
@@ -320,6 +325,7 @@ and which file is the vocabulary.
 | `vocabularyPath` | `.dsh/semantics.yaml` | vocabulary file, relative to the workspace root |
 | `announceToAgent` | `true` | fallback for a workspace without its own switch |
 | `announceByWorkspace` | `{}` | per-workspace prompt-injection overrides, keyed by canonical path; written by the header switch and hidden from the form |
+| `announceDetail` | `full` | detail of the injected section: `full` includes notes, `compact` lists id and symbol only |
 | `citationStyle` | `file+symbol` | `path/File.cs::Symbol` or `path/File.cs:123` |
 | `minConfidence` | `medium` | lowest confidence the **tools** report; the panel receives every level |
 | `timeoutMs` | `30000` | wall-clock budget for one scan |
@@ -374,6 +380,9 @@ What you can do about it:
 
 - **Turn the injection off** in the panel settings: one click, no reload, removes the
   section (~500–3,500 tokens) and keeps the tools.
+- **Switch to the compact prompt**: set `announceDetail` to `compact` to keep only
+  `id -> symbol`; on the same vocabulary this cuts roughly 60–70% of the section.
+  The default stays `full`.
 - **Keep the vocabulary small**: it is a vocabulary of concepts, not a dictionary of
   every field.
 - **Disable the plugin row** to remove even the tool schemas.

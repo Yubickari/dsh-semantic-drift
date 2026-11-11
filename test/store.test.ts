@@ -53,6 +53,18 @@ test('a workspace without a vocabulary file reports an empty valid document', as
   assert.deepEqual(state.document.exclude, DEFAULT_EXCLUDES)
 })
 
+test('default excludes prune package caches and build artifacts', () => {
+  for (const pattern of [
+    '.nuget/**',
+    'artifacts/**',
+    '.tmp/**',
+    'TestResults/**',
+    'BenchmarkDotNet.Artifacts/**',
+  ]) {
+    assert.ok(DEFAULT_EXCLUDES.includes(pattern), `missing default exclude ${pattern}`)
+  }
+})
+
 test('save then load round-trips and stays idempotent', async () => {
   const root = await workspace()
   const first = await saveVocabulary(root, RELATIVE, sample(), { now: new Date('2026-02-03T10:00:00') })

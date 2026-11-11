@@ -15,6 +15,7 @@ function config(): SemanticConfig {
     vocabularyPath: '.dsh/semantics.yaml',
     announceToAgent: true,
     announceByWorkspace: {},
+    announceDetail: 'full',
     citationStyle: 'file+symbol',
     minConfidence: 'medium',
     timeoutMs: 10_000,
@@ -344,7 +345,7 @@ test('every config field is volatile, which is what DSH renders a form from', ()
     .filter(([, field]) => field.meta?.volatile !== true)
     .map(([name]) => name)
   assert.deepEqual(fixed, [], 'no config field may stay non-volatile')
-  assert.equal(Object.keys(dict).length, 10, 'nine form fields plus the hidden per-workspace map')
+  assert.equal(Object.keys(dict).length, 11, 'ten form fields plus the hidden per-workspace map')
 })
 
 test('liveConfig reads every field type live and falls back to the schema default', () => {
@@ -404,9 +405,10 @@ test('liveConfig reads every field type live and falls back to the schema defaul
   assert.deepEqual(bare.detectors, ['term-unmapped'])
   const absent = liveConfig<SemanticConfig>(undefined)
   assert.equal(absent.announceToAgent, true)
+  assert.equal(absent.announceDetail, 'full')
   assert.equal(absent.citationStyle, 'file+symbol')
   assert.deepEqual(absent.detectors, ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'])
-  assert.equal(Object.keys(absent).length, 10, 'every field is reachable, so no reader sees undefined')
+  assert.equal(Object.keys(absent).length, 11, 'every field is reachable, so no reader sees undefined')
 })
 
 test('VERSION stays in sync with package.json', async () => {

@@ -49,6 +49,8 @@ export interface SemanticConfig {
   announceToAgent: Volatile<boolean>
   /** Per-workspace overrides for `announceToAgent`, keyed by canonical path. */
   announceByWorkspace: Volatile<Record<string, boolean>>
+  /** How much of the vocabulary the prompt section carries. */
+  announceDetail: 'full' | 'compact'
   citationStyle: 'file+symbol' | 'file:line'
   minConfidence: Confidence
   timeoutMs: number
