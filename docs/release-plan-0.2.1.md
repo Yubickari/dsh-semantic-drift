@@ -1,6 +1,6 @@
 # 0.2.1 发布方案
 
-> **状态**：计划，待实施。本文不是实现，也不替代 CHANGELOG。
+> **状态**：实施中（2026-11-11）。0.2.1 改动在 release 分支推进；发布前按 §6 验收。
 >
 > **目标版本**：0.2.1（patch）。
 >
@@ -16,8 +16,8 @@
 
 1. 0.2.1 只收 **#21（默认排除项）** 和 **#23（紧凑提示）**，不夹带 #22、#24、#25、#26、#27、#12。
 2. 默认行为不变：`announceDetail` 默认 `full`，词表仍是 `version: 1`，5 个工具 schema 不变；现有词表文件不受影响。
-3. 发布路径：计划 PR → #21 PR → #23 PR → release PR（版本号 + CHANGELOG + `lib/`）→ tag `v0.2.1` → npm / GitHub release → 干净 profile 验收。
-4. 两个 dependabot PR（#18、#19）都绿，但**不并入 0.2.1**；发布后单独合并，避免 patch 范围膨胀。
+3. 发布路径：计划 PR（已完成）→ release PR（#21 + #23 + 依赖 + 版本号 + CHANGELOG + `lib/`）→ tag `v0.2.1` → npm / GitHub release → 干净 profile 验收。为了本周发布，实现与版本收口合并为一个 release PR；#21 / #23 的验收项不变。
+4. 两个 dependabot PR 纳入 0.2.1：**#19 已合并**；#18 在 #19 之后出现 lockfile 冲突，改为把 `jsdom` 31.0.0 并入 release PR，原 PR 关闭为 superseded。
 5. 后续版本建议见 §9：0.3.0 收口命名层，0.4.0 / 0.5.0 做行为漂移。
 
 ---
@@ -36,8 +36,9 @@
 |---|---|---|---|---|
 | [#21](https://github.com/Yubickari/dsh-semantic-drift/issues/21) | 默认排除项补 `.nuget/**`、`artifacts/**`、`.tmp/**`、`TestResults/**`、`BenchmarkDotNet.Artifacts/**` | S | 低 | 全量扫描 17.4 MB / 647 ms → 150 KB / 49 ms；包缓存误报消失 |
 | [#23](https://github.com/Yubickari/dsh-semantic-drift/issues/23) | `announceDetail: full \| compact`，默认 `full` | S | 低–中 | 48 概念注入段 9,362 → 约 3,000 字符（约 −68%） |
+| [#18](https://github.com/Yubickari/dsh-semantic-drift/pull/18) / [#19](https://github.com/Yubickari/dsh-semantic-drift/pull/19) | `@deepseek-ai/schemastery` 3.19.0 + `jsdom` 31.0.0 | S | 低 | 依赖与 lockfile 一次更新；#18 原 PR 关闭为 superseded |
 
-两项都对应现场评估里的 P0，且都不触碰词表 schema。
+两项 P0 加依赖更新，都不触碰词表 schema。
 
 ---
 
@@ -51,7 +52,6 @@
 | #26 批量 upsert | M 规模，工具 API 变更 | 0.3.0 |
 | #27 指标导出 | P2，可等命名层收口后做 | 0.3.1 |
 | #12 行为漂移 | L 规模，且需要 v2 schema | 0.4.0 / 0.5.0 |
-| #18 / #19 依赖 | 与两个 P0 无关；发布后单独合并 | 发布后 |
 
 ---
 
@@ -111,6 +111,18 @@
 - [ ] 配置页出现新字段，中英文标签齐全。
 - [ ] 词表格式、工具 schema、扫描结果形状不变。
 
+### 4.3 依赖更新（#18 / #19）
+
+- **#19** 已合并：`@deepseek-ai/schemastery` 3.18.5 → 3.19.0。
+- **#18** 在 #19 合并后出现 `pnpm-lock.yaml` 冲突；0.2.1 直接把 `jsdom` 30.1.3 → 31.0.0 纳入 release 分支，`pnpm install` 重新生成 lockfile；原 dependabot PR 关闭为 superseded。
+- 不新增运行时代码；只改 `package.json` 与 `pnpm-lock.yaml`。
+
+**验收**
+
+- [ ] `package.json` 为 `~3.19.0` / `^31.0.0`。
+- [ ] `pnpm test` 在 Node 22.18 与 24 通过。
+- [ ] `pnpm install --frozen-lockfile` 在 CI 通过。
+
 ---
 
 ## 5. 兼容性与回滚
@@ -127,8 +139,10 @@
 ## 6. 发布检查清单
 
 - [ ] 计划 PR 合并，范围冻结。
-- [ ] #21 PR 合并，CI 绿。
-- [ ] #23 PR 合并，CI 绿。
+- [ ] #21 的验收项在 release PR 中通过（默认排除 fixture）。
+- [ ] #23 的验收项在 release PR 中通过（full / compact 与配置页）。
+- [ ] `package.json` 为 `@deepseek-ai/schemastery ~3.19.0` 与 `jsdom ^31.0.0`，lockfile 已更新。
+- [ ] release PR CI 绿。
 - [ ] `pnpm test` 通过（Node 22.18 与 24）。
 - [ ] `pnpm build`，`lib/` diff 已提交。
 - [ ] `package.json`、`src/index.ts` 的 VERSION、CHANGELOG 三处都是 0.2.1。
@@ -153,6 +167,7 @@ A small patch for scan hygiene and prompt cost.
 - **New `announceDetail: full | compact` setting.** `compact` drops the note
   text from the injected vocabulary section; the default stays `full`, so the
   prompt is unchanged unless the setting is switched.
+- Dependencies: `@deepseek-ai/schemastery` 3.19.0 and `jsdom` 31.0.0.
 - No vocabulary format change: `version: 1` files stay valid, and the five tool
   schemas are unchanged.
 ```
@@ -163,23 +178,23 @@ A small patch for scan hygiene and prompt cost.
 
 | 日期 | 任务 | 退出条件 |
 |---|---|---|
-| 11-11（周三） | 计划 PR；#21 实现 | 计划合并；#21 PR 打开 |
-| 11-12（周四） | #21 合并；#23 实现 + 测试 + 文档 | #23 PR 绿；或决定把它挪到 0.2.2 |
-| 11-13（周五） | release PR；tag；发布；验收 | npm / GitHub / health 三项通过 |
+| 11-11（周三） | 计划 PR；release 分支起步（#21） | 计划合并；#21 代码 + 测试完成 |
+| 11-12（周四） | #23 代码 + 测试 + 文档；依赖更新；release PR 打开 | CI 绿；或决定只发 #21 |
+| 11-13（周五） | 合并 release PR；tag；发布；验收 | npm / GitHub / health 三项通过 |
 | 11-14（周六） | 缓冲、公告、issue 收尾 | 无未处理的 release 阻塞 |
 
 **切版规则**：如果 #23 在周四结束前还不能全绿，0.2.1 只发 #21；#23 顺延到 0.2.2。不要为了赶周五把 #22 或 schema 变更塞进来。
 
 ---
 
-## 8. 两个 dependabot PR
+## 8. 依赖 PR（#18 / #19）
 
-| PR | 变更 | 状态 | 建议 |
-|---|---|---|---|
-| [#19](https://github.com/Yubickari/dsh-semantic-drift/pull/19) | `@deepseek-ai/schemastery` 3.18.5 → 3.19.0 | 绿，CLEAN | 不并入 0.2.1；0.2.1 tag 后单独合并（或 0.3.0 开工时） |
-| [#18](https://github.com/Yubickari/dsh-semantic-drift/pull/18) | `jsdom` 30.1.3 → 31.0.0（dev） | 绿，CLEAN | 不并入 0.2.1；随 0.3.0 合并（dev-only major，单独 CI 窗口） |
+| PR | 变更 | 处理 |
+|---|---|---|
+| [#19](https://github.com/Yubickari/dsh-semantic-drift/pull/19) | `@deepseek-ai/schemastery` 3.18.5 → 3.19.0 | 已合并到 main；0.2.1 使用 3.19.0 |
+| [#18](https://github.com/Yubickari/dsh-semantic-drift/pull/18) | `jsdom` 30.1.3 → 31.0.0（dev） | 因 #19 后 lockfile 冲突，改动并入 0.2.1 release 分支；原 PR 关闭为 superseded |
 
-理由：两项都与 #21 / #23 无关；0.2.1 的 diff 越窄，回滚和验收越简单。两个 PR 都改 `pnpm-lock.yaml`，一起并会让 release PR 多一次 rebase；发布后再并更干净。
+两项都纳入 0.2.1；`pnpm install` 统一生成 lockfile，CI 在 Node 22.18 / 24 上验证。这样既拿到依赖更新，又不把两个 dependabot PR 的 rebase 拖到发布前。
 
 ---
 
@@ -189,8 +204,8 @@ A small patch for scan hygiene and prompt cost.
 
 | 版本 | 建议窗口 | 范围 | 退出条件 |
 |---|---|---|---|
-| 0.2.1 | 11-13 | #21 + #23 | 本文件的验收清单 |
-| 0.2.2 | 仅 hotfix | 修复 + #18 / #19（如需要） | 无新功能 |
+| 0.2.1 | 11-13 | #21 + #23 + #18 / #19 依赖 | 本文件的验收清单 |
+| 0.2.2 | 仅 hotfix | 修复 + 依赖刷新（如需要） | 无新功能 |
 | 0.3.0 | 12 月上旬（2–3 周） | #24 计划、#22 status、#25 CLI / CI、#26 批量 upsert | v1 可选字段生效；CI 门禁能拦变体；批量创建可用 |
 | 0.3.1 | 12 月中下旬 | #27 指标导出 + 文档 / 测量 | 可选导出可用，默认关闭 |
 | 0.4.0 | 1 月（3–4 周） | 行为漂移基础 + v2 schema + `semantic_upgrade` | 迁移 dry-run / apply 成功；20 个 watch 函数 < 2 s |
@@ -199,9 +214,9 @@ A small patch for scan hygiene and prompt cost.
 
 ### 9.2 与现有 roadmap 的编号冲突
 
-`docs/behavior-drift-roadmap.md` 把行为基础放在 0.3.0、审核闭环放在 0.4.0。本方案建议**顺延为 0.4.0 / 0.5.0**，因为 0.3.0 要先收口命名层的 P0/P1（#22、#25、#26）；否则会把 schema v2、CLI、status 三个大改动挤进同一个版本。
+`docs/behavior-drift-roadmap.md` 把行为基础放在 0.3.0、审核闭环放在 0.4.0。**已采纳（2026-11-11，暂定）**：行为基础顺延到 0.4.0，审核闭环到 0.5.0；0.3.0 留给命名层（#22、#25、#26）。roadmap 的版本号在 0.3.0 开工前同步。
 
-如果坚持 roadmap 原编号，替代方案是：0.3.0 仍做行为基础，#22 / #25 / #26 顺延到 0.3.x——代价是命名层晚一个版本。二选一，建议前者。
+如果之后想回到原编号，替代方案仍是：0.3.0 做行为基础，#22 / #25 / #26 顺延到 0.3.x——代价是命名层晚一个版本。当前按前一种执行。
 
 ### 9.3 版本节奏原则
 
@@ -211,12 +226,12 @@ A small patch for scan hygiene and prompt cost.
 
 ---
 
-## 10. 待确认
+## 10. 已确认
 
-- [ ] 0.2.1 范围 = #21 + #23，还是只发 #21？
-- [ ] #22 / #24 / #25 / #26 是否统一放到 0.3.0？
-- [ ] 行为漂移是否接受 0.4.0 / 0.5.0 的顺延？
-- [ ] #19 发布后合并、#18 随 0.3.0，是否同意？
+- [x] 0.2.1 范围 = #21 + #23 + #18 / #19 依赖。
+- [x] #22 / #24 / #25 / #26 统一放到 0.3.0。
+- [x] 行为漂移按 0.4.0 / 0.5.0 顺延（暂定）。
+- [x] #19 已合并；#18 随 0.2.1 纳入，原 PR 关闭。
 
 ---
 

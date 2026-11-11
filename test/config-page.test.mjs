@@ -76,6 +76,7 @@ const VALUES = {
   vocabularyPath: '.dsh/semantics.yaml',
   announceToAgent: true,
   announceByWorkspace: {},
+  announceDetail: 'full',
   citationStyle: 'file+symbol',
   minConfidence: 'medium',
   timeoutMs: 30000,
@@ -85,13 +86,14 @@ const VALUES = {
   detectors: ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'],
 }
 
-/** Nine form fields; the per-workspace prompt map is panel-owned and hidden. */
+/** Ten form fields; the per-workspace prompt map is panel-owned and hidden. */
 const CONFIG = {
   ok: true,
   version: '0.1.5',
   fields: [
     { name: 'vocabularyPath', kind: 'string', description: 'Vocabulary file, relative to the workspace root.', default: '.dsh/semantics.yaml' },
     { name: 'announceToAgent', kind: 'boolean', description: 'Inject the vocabulary into every agent prompt.', default: true },
+    { name: 'announceDetail', kind: 'enum', description: 'Detail of the injected vocabulary section: `full` includes each note, `compact` lists id and symbol only.', options: ['full', 'compact'], default: 'full' },
     { name: 'citationStyle', kind: 'enum', description: 'Shape of copied references.', options: ['file+symbol', 'file:line'], default: 'file+symbol' },
     { name: 'minConfidence', kind: 'enum', description: 'Lowest confidence the agent tools report.', options: ['high', 'medium', 'low'], default: 'medium' },
     { name: 'timeoutMs', kind: 'number', description: 'Wall-clock budget for one scan.', min: 1000, max: 120000, default: 30000 },
@@ -283,14 +285,14 @@ test('the summary view is one line and renders no form', async () => {
   reactAct(() => root.unmount())
 })
 
-test('the page renders the eight bundle fields and never the agent-injection switch', async () => {
+test('the page renders the nine bundle fields and never the agent-injection switch', async () => {
   reset()
   const { container, root } = mountPage({ form: makeForm() })
   await flush()
-  assert.equal(container.querySelectorAll('.sd-config-field').length, 8, 'nine row fields minus the panel-owned switch')
+  assert.equal(container.querySelectorAll('.sd-config-field').length, 9, 'ten row fields minus the panel-owned switch')
   assert.equal(configCalls().length, 1, 'one field-table read on mount')
   const text = container.textContent ?? ''
-  for (const name of ['vocabularyPath', 'citationStyle', 'minConfidence', 'timeoutMs', 'maxFindings', 'maxFileBytes', 'maxFiles', 'detectors']) {
+  for (const name of ['vocabularyPath', 'announceDetail', 'citationStyle', 'minConfidence', 'timeoutMs', 'maxFindings', 'maxFileBytes', 'maxFiles', 'detectors']) {
     assert.ok(text.includes(name), 'missing field ' + name)
   }
   assert.equal(text.includes('announceToAgent'), false, 'the injection switch belongs to the panel settings')
@@ -304,11 +306,14 @@ test('every field kind gets its own control: select, checkbox group, bounded num
   const { container, root } = mountPage({ form: makeForm() })
   await flush()
 
-  const enumSelect = container.querySelector('[data-kind="enum"] select')
-  assert.ok(enumSelect !== null, 'an enum field must be a select')
-  assert.equal(container.querySelector('#sd-config-citationStyle').tagName, 'SELECT')
-  assert.deepEqual([...enumSelect.options].map(option => option.value), ['file+symbol', 'file:line'])
-  assert.equal(container.querySelectorAll('[data-kind="enum"] select').length, 2, 'citationStyle and minConfidence')
+  const citation = container.querySelector('#sd-config-citationStyle')
+  assert.ok(citation !== null, 'an enum field must be a select')
+  assert.equal(citation.tagName, 'SELECT')
+  assert.deepEqual([...citation.options].map(option => option.value), ['file+symbol', 'file:line'])
+  const detail = container.querySelector('#sd-config-announceDetail')
+  assert.equal(detail.tagName, 'SELECT')
+  assert.deepEqual([...detail.options].map(option => option.value), ['full', 'compact'])
+  assert.equal(container.querySelectorAll('[data-kind="enum"] select').length, 3, 'announceDetail, citationStyle and minConfidence')
 
   const flagsField = container.querySelector('[data-kind="flags"]')
   assert.ok(flagsField !== null)
@@ -331,7 +336,7 @@ test('every field the Host can send carries a localized label in both dictionari
   // The schema is the authority on the field set, so a field added there fails
   // this test until the page can name it in both languages.
   const shown = configFields().filter(field => field.name !== 'announceToAgent')
-  assert.equal(shown.length, 8, 'the page renders eight of the nine row fields')
+  assert.equal(shown.length, 9, 'the page renders nine of the ten row fields')
   for (const field of shown) {
     for (const language of ['zh', 'en']) {
       assert.equal(
@@ -361,9 +366,10 @@ test('the page names each field in Chinese and keeps the schema key beside it', 
   const { container, root } = mountPage({ form: makeForm() })
   await flush()
   const labels = [...container.querySelectorAll('.sd-config-label')].map(node => node.textContent ?? '')
-  assert.equal(labels.length, 8, 'one label per rendered field')
+  assert.equal(labels.length, 9, 'one label per rendered field')
   const expected = {
     vocabularyPath: '词表路径',
+    announceDetail: '提示详细度',
     citationStyle: '引用格式',
     minConfidence: '工具最低置信度',
     timeoutMs: '超时预算',
@@ -457,7 +463,7 @@ test('a read-only deployment disables every control and says why', async () => {
   await flush()
 
   const shown = controls(container)
-  assert.equal(shown.length, 11, 'one text box, two selects, four number boxes and four detector boxes')
+  assert.equal(shown.length, 12, 'one text box, three selects, four number boxes and four detector boxes')
   assert.equal(shown.every(control => control.disabled), true, 'every control is inert')
   assert.match(container.textContent ?? '', /当前环境设置为只读/)
   assert.equal(container.querySelector('.sd-config').getAttribute('data-locked'), 'true', 'the lock is on the page root')
@@ -527,7 +533,7 @@ test('a failed field-table read says so and retries through the button', async (
   answerConfig = () => json(CONFIG)
   click(retry)
   await flush(8)
-  assert.equal(container.querySelectorAll('.sd-config-field').length, 8, 'the retry loads the form')
+  assert.equal(container.querySelectorAll('.sd-config-field').length, 9, 'the retry loads the form')
   assert.equal(configCalls().length, 2)
   reactAct(() => root.unmount())
 })

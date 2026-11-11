@@ -133,6 +133,8 @@ concepts:
         reason: 公开字段保留一个版本
 ```
 
+新建词表时，插件写入一份默认 `exclude`（构建产物、包缓存、`.git` 等）。0.2.1 起默认还包含 `.nuget/**`、`artifacts/**`、`.tmp/**`、`TestResults/**` 和 `BenchmarkDotNet.Artifacts/**`；已有词表保留自己的 `exclude`，不会自动改写。
+
 `terms` 可以写任何语言：扫描器把它们当纯文本在注释、字符串与资源文件里匹配。
 
 写入前一定先校验；不通过就**不会写入**，并给出行号或文档路径：
@@ -234,6 +236,7 @@ concepts:
 | `vocabularyPath` | `.dsh/semantics.yaml` | 词表路径，相对工作区根 |
 | `announceToAgent` | `true` | 没有单独设置的工作区的默认注入值 |
 | `announceByWorkspace` | `{}` | 按工作区覆盖注入开关，键是规范化路径；顶部开关写入，表单不显示 |
+| `announceDetail` | `full` | 提示小节的详细度：`full` 带 note，`compact` 只列 id 与 symbol |
 | `citationStyle` | `file+symbol` | `path/File.cs::Symbol` 或 `path/File.cs:123` |
 | `minConfidence` | `medium` | **工具**报告的最低置信度；面板始终拿到全部 |
 | `timeoutMs` | `30000` | 单次扫描时间预算 |
@@ -268,6 +271,7 @@ concepts:
 可控手段：
 
 - **在面板设置里关闭注入**：一次点击、无需重载，去掉提示小节（约 500–3,500 tokens），工具仍然可用；
+- **切到紧凑提示**：把 `announceDetail` 设为 `compact`，提示小节只保留 `id -> symbol`，同一词表大约减少 60–70% 的字符；默认仍是 `full`；
 - **控制词表规模**：它是概念词表，不是字段大全；
 - **停用插件行**：连工具 schema 一起去掉。
 

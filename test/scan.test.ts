@@ -177,6 +177,30 @@ test('citations follow the configured style', async () => {
   assert.match(duplicate.citation, /^Beta\/Enumus\/NetworkStatus\.cs:\d+$/)
 })
 
+test('default excludes keep package caches and build artifacts out of the scan', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'semantic-drift-excludes-'))
+  await mkdir(join(root, 'src'), { recursive: true })
+  await mkdir(join(root, '.nuget', 'packages'), { recursive: true })
+  await writeFile(join(root, 'src', 'Code.csproj'), '<Project />\n')
+  await writeFile(join(root, 'src', 'Code.cs'), 'public enum NetworkStatus\n{\n    A,\n    B,\n}\n')
+  await writeFile(join(root, '.nuget', 'packages', 'Cache.csproj'), '<Project />\n')
+  await writeFile(join(root, '.nuget', 'packages', 'Cache.cs'), 'public enum NetworkStatus\n{\n    A,\n    B,\n}\n')
+
+  const unfiltered = await scanWorkspace({ ...BASE, root, document: { ...vocabulary(), exclude: [] } })
+  assert.ok(
+    unfiltered.findings.some(finding => finding.detector === 'duplicate-type'),
+    'the cache copy is visible when no exclude is set',
+  )
+
+  const filtered = await scanWorkspace({ ...BASE, root, document: vocabulary() })
+  assert.equal(
+    filtered.findings.some(finding => finding.detector === 'duplicate-type'),
+    false,
+    'the default excludes keep the cache copy out',
+  )
+  assert.ok(filtered.filesScanned < unfiltered.filesScanned, 'fewer files are read with the defaults')
+})
+
 test('a scan is read-only and deterministic', async () => {
   const root = await fixture()
   const before = await signature(root)

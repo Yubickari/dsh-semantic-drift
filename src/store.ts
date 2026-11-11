@@ -41,6 +41,11 @@ export const DEFAULT_EXCLUDES = [
   '**/vendor/**',
   '**/__pycache__/**',
   '**/.venv/**',
+  '.nuget/**',
+  'artifacts/**',
+  '.tmp/**',
+  'TestResults/**',
+  'BenchmarkDotNet.Artifacts/**',
 ]
 
 /** `group.concept`: at least two dot-separated lowercase snake segments. */

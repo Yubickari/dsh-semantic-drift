@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1
+
+A small patch for scan hygiene and prompt cost.
+
+- **Default excludes now skip package caches and common build artifacts.**
+  New vocabularies start with `.nuget/**`, `artifacts/**`, `.tmp/**`,
+  `TestResults/**` and `BenchmarkDotNet.Artifacts/**` in `exclude`. Existing
+  vocabulary files keep their own list and are not rewritten.
+- **New `announceDetail: full | compact` setting.** `compact` drops the note
+  text from the injected vocabulary section; the default stays `full`, so the
+  prompt is unchanged unless the setting is switched.
+- Dependencies: `@deepseek-ai/schemastery` 3.19.0 and `jsdom` 31.0.0.
+- No vocabulary format change: `version: 1` files stay valid, and the five tool
+  schemas are unchanged.
+
 ## 0.2.0
 
 Vocabulary editing and hierarchy, without a format change.
