@@ -321,6 +321,18 @@ test('a volatile announceToAgent is read live by every state answer', async () =
   assert.equal((await service.state()).effective?.announceToAgent, true)
 })
 
+test('state reports the effective announceDetail', async () => {
+  const root = await fixture()
+  const full = createSemanticService({ config: config(), workspace: resolverFor(root), version: '0.1.0' })
+  assert.equal((await full.state()).effective?.announceDetail, 'full')
+  const compact = createSemanticService({
+    config: { ...config(), announceDetail: 'compact' },
+    workspace: resolverFor(root),
+    version: '0.1.0',
+  })
+  assert.equal((await compact.state()).effective?.announceDetail, 'compact')
+})
+
 test('the volatile reference is unwrapped, never compared', () => {
   let on = false
   assert.equal(announceEnabled({ get: () => on }), false)

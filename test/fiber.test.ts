@@ -275,6 +275,16 @@ test('the health route reports what the activation mounted', async () => {
   assert.equal(health.routes, 9)
   assert.equal(health.promptSection, true)
   assert.equal(health.announceToAgent, true)
+  assert.equal(health.announceDetail, 'full')
+  harness.dispose()
+})
+
+test('health reports the configured announceDetail', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config({ announceDetail: 'compact' }))
+  assert.equal(callHealth(harness).announceDetail, 'compact')
   harness.dispose()
 })
 
@@ -404,6 +414,7 @@ function stateAnswer(workspace: string = WORKSPACE): Record<string, unknown> {
     effective: {
       vocabularyPath: '.dsh/semantics.yaml',
       announceToAgent: true,
+      announceDetail: 'full',
       citationStyle: 'file+symbol',
       minConfidence: 'medium',
       timeoutMs: 30_000,

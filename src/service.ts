@@ -193,6 +193,7 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
       effective: {
         vocabularyPath: relativePath(),
         announceToAgent: announceEnabled(config.announceToAgent, config.announceByWorkspace, target.path),
+        announceDetail: config.announceDetail,
         citationStyle: config.citationStyle,
         minConfidence: config.minConfidence,
         timeoutMs: config.timeoutMs,
