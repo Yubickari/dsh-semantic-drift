@@ -221,6 +221,8 @@ export interface EffectiveConfig {
   vocabularyPath: string
   /** The current workspace's prompt-injection choice. */
   announceToAgent: boolean
+  /** How much of the vocabulary the prompt section carries. */
+  announceDetail: 'full' | 'compact'
   citationStyle: CitationStyle
   minConfidence: Confidence
   timeoutMs: number

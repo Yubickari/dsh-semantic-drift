@@ -207,7 +207,7 @@ A small patch for scan hygiene and prompt cost.
 | 版本 | 建议窗口 | 范围 | 退出条件 |
 |---|---|---|---|
 | 0.2.1 | 已发布 11-12 | #21 + #23 + #18 / #19 依赖 | 本文件的验收清单 |
-| 0.2.2 | 仅 hotfix | 修复 + 依赖刷新（如需要） | 无新功能 |
+| 0.2.2 | 本地 hotfix（未发布） | health / state 暴露生效中的 `announceDetail` | 本地验证通过；不打 tag、不发 npm |
 | 0.3.0 | 12 月上旬（2–3 周） | #24 计划、#22 status、#25 CLI / CI、#26 批量 upsert、#31 `announceDetail` 默认 `compact` | v1 可选字段生效；CI 门禁能拦变体；批量创建可用；默认提示块走 compact |
 | 0.3.1 | 12 月中下旬 | #27 指标导出、#32 首次创建词表时的注入选择 | 可选导出可用；新工作区首次建词表时有一次明确的注入选择 |
 | 0.4.0 | 1 月（3–4 周） | 行为漂移基础 + v2 schema + `semantic_upgrade` | 迁移 dry-run / apply 成功；20 个 watch 函数 < 2 s |

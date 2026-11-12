@@ -32,7 +32,7 @@ import { createWorkspaceResolver, workspaceKey } from './workspace.ts'
 export { Config }
 
 /** Package version, kept in sync with package.json by a test. */
-export const VERSION = '0.2.1'
+export const VERSION = '0.2.2'
 
 /**
  * Services this plugin cannot work without.
@@ -227,6 +227,7 @@ export function apply(ctx: Context, rawConfig: LoaderConfig): void {
           version: VERSION,
           vocabularyPath: config.vocabularyPath,
           announceToAgent: announceEnabled(config.announceToAgent),
+          announceDetail: config.announceDetail,
           citationStyle: config.citationStyle,
           minConfidence: config.minConfidence,
           detectors: config.detectors,

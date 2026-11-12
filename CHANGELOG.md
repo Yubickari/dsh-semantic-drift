@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2
+
+A local hotfix; this version is not published to npm.
+
+- `/semantic-drift/health` and `GET /semantic-drift/state` now report the
+  effective `announceDetail` (`full` or `compact`). The active prompt detail is
+  visible without reading the injected section; the default and the prompt
+  output are unchanged.
+- No vocabulary format change and no tool-schema change.
+
 ## 0.2.1
 
 A small patch for scan hygiene and prompt cost.
