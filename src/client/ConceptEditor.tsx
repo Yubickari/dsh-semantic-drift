@@ -14,8 +14,8 @@
  */
 
 import { useState } from 'react'
-import { CONCEPT_KINDS } from '../protocol.ts'
-import type { Concept, ConceptKind, ValidationIssue } from '../protocol.ts'
+import { CONCEPT_KINDS, CONCEPT_LIFECYCLES } from '../protocol.ts'
+import type { Concept, ConceptKind, ConceptLifecycle, ValidationIssue } from '../protocol.ts'
 import { IssueList } from './IssueList.tsx'
 import { t } from './locales.ts'
 
@@ -50,6 +50,7 @@ export function ConceptEditor(props: ConceptEditorProps) {
   const [id, setId] = useState(props.concept?.id ?? props.initialId ?? '')
   const [terms, setTerms] = useState((props.concept?.terms ?? []).join(', '))
   const [kind, setKind] = useState<ConceptKind>(props.concept?.kind ?? 'entity')
+  const [lifecycle, setLifecycle] = useState<ConceptLifecycle>(props.concept?.lifecycle ?? 'active')
   const [symbol, setSymbol] = useState(props.concept?.canonical.symbol ?? props.initialSymbol ?? '')
   const [symbolType, setSymbolType] = useState(props.concept?.canonical.type ?? '')
   const [unit, setUnit] = useState(props.concept?.canonical.unit ?? '')
@@ -65,6 +66,7 @@ export function ConceptEditor(props: ConceptEditorProps) {
       id: id.trim(),
       terms: parsedTerms,
       kind,
+      ...(lifecycle === 'active' ? {} : { lifecycle }),
       canonical: {
         symbol: symbol.trim(),
         ...(symbolType.trim() === '' ? {} : { type: symbolType.trim() }),
@@ -137,6 +139,22 @@ export function ConceptEditor(props: ConceptEditorProps) {
             placeholder="°C"
           />
         </div>
+      </div>
+
+      <div className="sd-field">
+        <label className="sd-label" htmlFor="sd-lifecycle">{t('editor.lifecycle')}</label>
+        <select
+          id="sd-lifecycle"
+          className="sd-select"
+          value={lifecycle}
+          onChange={event => setLifecycle(event.target.value as ConceptLifecycle)}
+          style={{ maxWidth: 'none', width: '100%' }}
+        >
+          {CONCEPT_LIFECYCLES.map(value => (
+            <option key={value} value={value}>{t(`lifecycle.${value}`)}</option>
+          ))}
+        </select>
+        <span className="sd-hint">{t('editor.lifecycleHint')}</span>
       </div>
 
       <div className="sd-row">

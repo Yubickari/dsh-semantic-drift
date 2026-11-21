@@ -351,6 +351,13 @@ export const PANEL_CSS = `
   color: var(--dsw-alias-label-primary);
 }
 .sd-tree-head .sd-add { opacity: 1; margin-left: auto; }
+.sd-lifecycle-summary {
+  font-size: 10px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .sd-caret { transition: transform .12s ease; display: inline-flex; }
 .sd-caret[data-open='false'] { transform: rotate(-90deg); }
 .sd-caret-button {
@@ -499,6 +506,9 @@ export const PANEL_CSS = `
 .sd-count[data-tone='warn'] {
   color: var(--dsw-alias-state-warn-label);
   background: var(--dsw-alias-state-warn-tertiary);
+}
+.sd-count[data-tone='muted'] {
+  color: var(--dsw-alias-label-secondary);
 }
 .sd-node-badges .sd-count {
   min-width: 16px;

@@ -178,6 +178,51 @@ test('a banner is persistent page state with an action', () => {
   assert.match(html, /重新扫描/)
 })
 
+test('lifecycle is editable and visible in the detail and the tree', () => {
+  const planned = { ...concept, lifecycle: 'planned' }
+  const detail = render(createElement(ui.ConceptDetail, {
+    concept: planned,
+    findings: [],
+    showLow: false,
+    onEdit: () => undefined,
+    onDelete: () => undefined,
+    muteCount: () => 0,
+    onAccept: () => undefined,
+    onCopy: () => undefined,
+  }))
+  assert.match(detail, /data-lifecycle="planned"/)
+  assert.match(detail, /计划中/)
+
+  const editor = render(createElement(ui.ConceptEditor, {
+    concept: planned,
+    issues: [],
+    saving: false,
+    onSave: () => undefined,
+    onCancel: () => undefined,
+  }))
+  assert.match(editor, /id="sd-lifecycle"/)
+  assert.match(editor, /计划中/)
+  assert.match(editor, /已废弃/)
+
+  const tree = render(createElement(ui.ConceptTree, {
+    concepts: [planned],
+    selectedId: 'sensor.sensor_rate',
+    query: '',
+    onQuery: () => undefined,
+    filter: 'all',
+    onFilter: () => undefined,
+    lifecycleCounts: { active: 0, planned: 1, deprecated: 0 },
+    driftCounts: new Map(),
+    unclassified: 0,
+    showUnclassified: false,
+    onSelect: () => undefined,
+    onSelectUnclassified: () => undefined,
+    onAdd: () => undefined,
+  }))
+  assert.match(tree, /data-tone="muted">计划/)
+  assert.match(tree, /计划 1/)
+})
+
 test('an error banner carries a retry action, a close control and its issues', () => {
   const html = render(createElement(ui.Banner, {
     kind: 'error',

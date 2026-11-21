@@ -17,10 +17,10 @@
  */
 
 import { useMemo, useState } from 'react'
-import type { Concept } from '../protocol.ts'
+import type { Concept, ConceptLifecycle } from '../protocol.ts'
 import { buildConceptTree } from './concept-tree.ts'
 import type { ConceptTreeNode } from './concept-tree.ts'
-import { t } from './locales.ts'
+import { t, tf } from './locales.ts'
 import { CaretIcon, PlusIcon, SearchIcon } from './icons.tsx'
 
 /** Props of the concept tree. */
@@ -31,6 +31,7 @@ export interface ConceptTreeProps {
   onQuery: (value: string) => void
   filter: 'all' | 'drift' | 'clean'
   onFilter: (value: 'all' | 'drift' | 'clean') => void
+  lifecycleCounts?: Record<ConceptLifecycle, number>
   driftCounts: Map<string, number>
   unclassified: number
   showUnclassified: boolean
@@ -101,6 +102,9 @@ function Branch(props: BranchProps) {
               <span className="sd-node-id">{node.segment}</span>
               <span className="sd-node-badges">
                 {showCount && <span className="sd-count">{childCount}</span>}
+                {concept?.lifecycle !== undefined && concept.lifecycle !== 'active' && (
+                  <span className="sd-count" data-tone="muted">{t(`lifecycle.short.${concept.lifecycle}`)}</span>
+                )}
                 {node.drift > 0 && <span className="sd-count" data-tone="warn">{node.drift}</span>}
               </span>
             </span>
@@ -148,6 +152,7 @@ export function ConceptTree(props: ConceptTreeProps) {
     [props.concepts, props.driftCounts],
   )
   const searching = props.query.trim() !== ''
+  const lifecycleCounts = props.lifecycleCounts ?? { active: 0, planned: 0, deprecated: 0 }
 
   const toggle = (path: string) => {
     setCollapsed(current => ({ ...current, [path]: current[path] !== true }))
@@ -161,6 +166,15 @@ export function ConceptTree(props: ConceptTreeProps) {
       <div className="sd-tree-head">
         <span className="sd-tree-title">{t('tree.title')}</span>
         <span className="sd-count">{props.concepts.length}</span>
+        {(lifecycleCounts.planned > 0 || lifecycleCounts.deprecated > 0) && (
+          <span className="sd-lifecycle-summary">
+            {tf('tree.lifecycleSummary', {
+              active: lifecycleCounts.active,
+              planned: lifecycleCounts.planned,
+              deprecated: lifecycleCounts.deprecated,
+            })}
+          </span>
+        )}
         <button
           type="button"
           className="sd-add"
