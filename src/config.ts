@@ -49,9 +49,9 @@ export const Config = z.object({
 
   announceDetail: z
     .union(['full', 'compact'])
-    .default('full')
+    .default('compact')
     .volatile()
-    .description('Detail of the injected vocabulary section: `full` includes each note, `compact` lists id and symbol only.'),
+    .description('Detail of the injected vocabulary section: `compact` lists id and symbol only (the default); `full` includes each note.'),
 
   citationStyle: z
     .union([...CITATION_STYLES])
