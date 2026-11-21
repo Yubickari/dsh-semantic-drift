@@ -19,6 +19,7 @@ DSH shows the plugin as **Semantic Drift Vocabulary** (语义漂移词表).
   - [The vocabulary file](#the-vocabulary-file)
   - [Detectors](#detectors)
   - [Agent tools and prompt injection](#agent-tools-and-prompt-injection)
+  - [Read-only CLI](#read-only-cli)
   - [The panel](#the-panel)
   - [Configuration](#configuration)
 - [How it works](#how-it-works)
@@ -26,6 +27,7 @@ DSH shows the plugin as **Semantic Drift Vocabulary** (语义漂移词表).
   - [Guarantees](#guarantees)
   - [Limits](#limits)
   - [Development](#development)
+- [Schema versions](#schema-versions)
 - [Roadmap](#roadmap)
 - [License](#license)
 
@@ -126,10 +128,10 @@ again.
 
 ```bash
 # npm, a specific version
-dsh plugin --profile desktop add dsh-semantic-drift@0.2.0
+dsh plugin --profile desktop add dsh-semantic-drift@0.3.0
 
 # GitHub, pinned to a tag
-dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.2.0
+dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.3.0
 ```
 
 Restart DSH afterwards, then read the version in the panel footer (`vX.Y.Z`) or at
@@ -163,6 +165,7 @@ concepts:
   - id: device.target_temperature      # a.b, unique; at least two segments
     terms: ["target temperature", "set point"]   # what humans call it
     kind: quantity                     # entity | quantity | enum | status | reference
+    # lifecycle: planned | active | deprecated (active is the default)
     canonical:
       symbol: TargetTemperature        # what the code must call it
       type: double
@@ -179,6 +182,14 @@ A new vocabulary starts with a default `exclude` list (build outputs, package ca
 `.tmp/**`, `TestResults/**` and `BenchmarkDotNet.Artifacts/**`; an existing
 vocabulary keeps its own `exclude` and is never rewritten.
 
+The optional `lifecycle` field marks a concept's stage: `planned` (registered for a
+later stage), `active` (the default when omitted) or `deprecated` (kept for history).
+`term-unmapped` skips planned and deprecated concepts, and the prompt marks them with
+`[planned]` / `[deprecated]`. This is the last schema v1 field: 0.3.0 freezes the
+format. An older 0.2.x plugin ignores `lifecycle` and drops it on its next save, so do
+not downgrade and save without a backup. Schema v2 is still a draft; see
+[docs/schema-evolution.md](docs/schema-evolution.md).
+
 `terms` may be written in any language: the scanner matches them as plain text in
 comments, strings and resource files.
 
@@ -189,6 +200,7 @@ reported issue carries the YAML line or the document path:
   (`a.b`);
 * `canonical.symbol` must be a plain identifier and unique across concepts;
 * `terms` must be non-empty and cannot be shared between two concepts;
+* `lifecycle`, when present, must be `planned`, `active` or `deprecated`;
 * every `accepted` entry needs a `reason`;
 * every glob must parse;
 * a YAML syntax error is reported with its line and column, and the file is left
@@ -245,7 +257,7 @@ the same name, and private nested helpers.
 |---|---|
 | `semantic_list` | list concepts; `hasDrift` runs a scan and filters to concepts with findings |
 | `semantic_get` | one concept by id or symbol, plus its accepted exceptions; `includeDrift` adds a scan |
-| `semantic_upsert` | create or update a concept (`merge` keeps omitted fields, `replace` rebuilds it) |
+| `semantic_upsert` | create or update one concept, or a batch with `concepts`; every item reports its own issues (`merge` keeps omitted fields, `replace` rebuilds it) |
 | `drift_scan` | structured findings with detector, confidence and citation |
 | `semantic_accept` | `add` (default), `update` scope or reason, `remove` one, `clear` a concept; `reason` is required to add or update. `previousPath` locates the entry to change |
 
@@ -268,6 +280,25 @@ The loop this is built for:
    divergence;
 4. a finding that is intentional is accepted with a reason and a narrow scope;
 5. the vocabulary diff is reviewed like any other change.
+
+### Read-only CLI
+
+The package also ships a read-only CLI for CI and local gates:
+
+```bash
+npx dsh-semantic-drift scan --changed --json
+npx dsh-semantic-drift scan --all --json
+```
+
+`--changed` scans the workspace and reports only findings touching files changed
+since `--base` (default `origin/main`, then `HEAD^`). It still scans every file:
+cross-file detectors need both declarations, so filtering the findings is the
+correct trade-off. Exit codes are `0` (clean), `1` (findings) and `2` (usage or
+runtime error). `--json` makes the output machine-readable; `--detectors`,
+`--paths`, `--min-confidence` and `--root` narrow or relocate the scan. The CLI
+never writes the vocabulary. Full flags, JSON shape and exit codes are in
+[docs/cli.md](docs/cli.md); a GitHub Actions example is in
+[docs/github-action.yml](docs/github-action.yml).
 
 ### The panel
 
@@ -325,7 +356,7 @@ and which file is the vocabulary.
 | `vocabularyPath` | `.dsh/semantics.yaml` | vocabulary file, relative to the workspace root |
 | `announceToAgent` | `true` | fallback for a workspace without its own switch |
 | `announceByWorkspace` | `{}` | per-workspace prompt-injection overrides, keyed by canonical path; written by the header switch and hidden from the form |
-| `announceDetail` | `full` | detail of the injected section: `full` includes notes, `compact` lists id and symbol only |
+| `announceDetail` | `compact` | detail of the injected section: `compact` lists id and symbol only (default), `full` includes notes |
 | `citationStyle` | `file+symbol` | `path/File.cs::Symbol` or `path/File.cs:123` |
 | `minConfidence` | `medium` | lowest confidence the **tools** report; the panel receives every level |
 | `timeoutMs` | `30000` | wall-clock budget for one scan |
@@ -380,9 +411,9 @@ What you can do about it:
 
 - **Turn the injection off** in the panel settings: one click, no reload, removes the
   section (~500–3,500 tokens) and keeps the tools.
-- **Switch to the compact prompt**: set `announceDetail` to `compact` to keep only
-  `id -> symbol`; on the same vocabulary this cuts roughly 60–70% of the section.
-  The default stays `full`.
+- **Stay on the compact prompt**: `announceDetail` defaults to `compact`, which keeps
+  only `id -> symbol`; on the same vocabulary this cuts roughly 60–70% of the section.
+  Set it to `full` if the notes are worth the tokens.
 - **Keep the vocabulary small**: it is a vocabulary of concepts, not a dictionary of
   every field.
 - **Disable the plugin row** to remove even the tool schemas.
@@ -453,13 +484,26 @@ called in another — a class of bug a bundler ships happily.
 Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md), including the rule that no
 real project may be identifiable anywhere in this repository.
 
+## Schema versions
+
+| Version | Status | Notes |
+|---|---|---|
+| `1` | **frozen at 0.3.0** | the naming vocabulary; `lifecycle` was the last optional field |
+| `2` | draft | adds `behaviors`; bump on the first persisted behavior; old plugins reject it |
+
+The decision table, migration rules and the still-open v2 questions are in
+[docs/schema-evolution.md](docs/schema-evolution.md). The upgrade notes for 0.3.0
+are in [docs/upgrading-to-0.3.0.md](docs/upgrading-to-0.3.0.md).
+
 ## Roadmap
 
-0.2.0 makes the vocabulary editable and hierarchical. The next planned step is
-**behavior drift**: a deterministic function index plus agent-authored semantic
-summaries, with a human review queue. The implementation plan, validation-repo
-selection and acceptance criteria are in
-[docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md) (Chinese).
+0.3.0 closes schema v1: lifecycle, the compact default, batch registration and a
+read-only CI gate. The next planned step is **behavior drift** (0.4.0): a
+deterministic function index plus agent-authored semantic summaries, with a human
+review queue in 0.5.0. The implementation plan, validation-repo selection and
+acceptance criteria are in
+[docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md) (Chinese); the v2
+format draft is in [docs/schema-evolution.md](docs/schema-evolution.md).
 
 ## License
 

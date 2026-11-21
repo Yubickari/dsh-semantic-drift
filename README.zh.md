@@ -17,6 +17,7 @@ DSH 中显示的名字是 **语义漂移词表**（英文 Semantic Drift Vocabul
   - [词表文件](#词表文件)
   - [检测器](#检测器)
   - [Agent 工具与提示注入](#agent-工具与提示注入)
+  - [只读 CLI](#只读-cli)
   - [面板](#面板)
   - [配置](#配置)
 - [工作详细信息](#工作详细信息)
@@ -24,6 +25,7 @@ DSH 中显示的名字是 **语义漂移词表**（英文 Semantic Drift Vocabul
   - [保证](#保证)
   - [限制](#限制)
   - [开发](#开发)
+- [Schema 版本](#schema-版本)
 - [路线图](#路线图)
 - [许可](#许可)
 
@@ -92,10 +94,10 @@ Web GUI 里对应「**设置 → 插件 → 从源安装**」。安装后刷新�
 
 ```bash
 # npm，指定版本
-dsh plugin --profile desktop add dsh-semantic-drift@0.2.0
+dsh plugin --profile desktop add dsh-semantic-drift@0.3.0
 
 # GitHub，锁定到某个 tag
-dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.2.0
+dsh plugin --profile desktop add github:Yubickari/dsh-semantic-drift#v0.3.0
 ```
 
 之后重启 DSH，版本号看面板右下角的底栏（`vX.Y.Z`）或 `GET /semantic-drift/health`；设置弹窗里不再显示版本。更新不会改动你的词表文件与已接受例外。
@@ -122,6 +124,7 @@ concepts:
   - id: device.target_temperature      # a.b，全局唯一；至少两段
     terms: ["目标温度", "设定温度"]        # 人怎么称呼它
     kind: quantity                     # entity | quantity | enum | status | reference
+    # lifecycle: planned | active | deprecated（缺省 active）
     canonical:
       symbol: TargetTemperature        # 代码里必须这么写
       type: double
@@ -135,6 +138,8 @@ concepts:
 
 新建词表时，插件写入一份默认 `exclude`（构建产物、包缓存、`.git` 等）。0.2.1 起默认还包含 `.nuget/**`、`artifacts/**`、`.tmp/**`、`TestResults/**` 和 `BenchmarkDotNet.Artifacts/**`；已有词表保留自己的 `exclude`，不会自动改写。
 
+可选的 `lifecycle` 字段表示概念的阶段：`planned`（已登记、后续阶段才实现）、`active`（缺省值）或 `deprecated`（只保留历史）。`term-unmapped` 会跳过 planned 与 deprecated，提示小节用 `[planned]` / `[deprecated]` 标记。这是 schema v1 的最后一个字段：0.3.0 冻结格式。0.2.x 旧插件读到它会忽略、并在下一次保存时丢掉，所以不要降级后直接保存。v2 仍是草案，见 [docs/schema-evolution.md](docs/schema-evolution.md)；0.2.x 升级步骤见 [docs/upgrading-to-0.3.0.md](docs/upgrading-to-0.3.0.md)。
+
 `terms` 可以写任何语言：扫描器把它们当纯文本在注释、字符串与资源文件里匹配。
 
 写入前一定先校验；不通过就**不会写入**，并给出行号或文档路径：
@@ -142,6 +147,7 @@ concepts:
 * `id` 唯一，且为小写点分段、至少两段（如 `a.b`）；
 * `canonical.symbol` 是合法标识符且全局唯一；
 * `terms` 非空，且不能被两个概念共用；
+* `lifecycle` 若存在，必须是 `planned`、`active` 或 `deprecated`；
 * 每条 `accepted` 必须有 `reason`；
 * 每个 glob 必须能解析；
 * YAML 语法错误给出行列号，文件保持原样。
@@ -187,7 +193,7 @@ concepts:
 |---|---|
 | `semantic_list` | 列出概念；`hasDrift` 跑一次扫描并只保留有发现的概念 |
 | `semantic_get` | 按 id 或符号读一个概念与它的已接受例外；`includeDrift` 追加扫描 |
-| `semantic_upsert` | 新建或更新概念（`merge` 保留未提供字段，`replace` 重建） |
+| `semantic_upsert` | 新建或更新一个概念，或用 `concepts` 批量登记；每条各自返回问题（`merge` 保留未提供字段，`replace` 重建） |
 | `drift_scan` | 结构化发现，带检测器名、置信度与引用 |
 | `semantic_accept` | `add`（默认）、`update` 改范围或理由、`remove` 移除一条、`clear` 清空一个概念；新增与修改必须带 `reason`；定位已有条目用 `previousPath` |
 
@@ -202,6 +208,17 @@ concepts:
 3. 改完 `drift_scan`，看有没有引入变体或分叉；
 4. 确属刻意的发现，用 `semantic_accept` 带理由、带最小范围接受；
 5. 词表 diff 和其它改动一样走 review。
+
+### 只读 CLI
+
+包内还带一个只读 CLI，用于 CI 和本地门禁：
+
+```bash
+npx dsh-semantic-drift scan --changed --json
+npx dsh-semantic-drift scan --all --json
+```
+
+`--changed` 会扫描整个工作区，但只报告触及变更文件（自 `--base` 起；默认 `origin/main`，再退到 `HEAD^`）的发现。它仍然扫全量：跨文件检测器需要两侧声明，过滤发现而不是只扫变更文件才是正确的取舍。退出码：`0` 干净、`1` 有发现、`2` 用法/运行错误。`--json` 供机器读取；`--detectors`、`--paths`、`--min-confidence` 和 `--root` 可收窄或指定扫描。CLI 不写词表。完整参数、JSON 结构与退出码见 [docs/cli.md](docs/cli.md)；GitHub Actions 示例见 [docs/github-action.yml](docs/github-action.yml)。
 
 ### 面板
 
@@ -236,7 +253,7 @@ concepts:
 | `vocabularyPath` | `.dsh/semantics.yaml` | 词表路径，相对工作区根 |
 | `announceToAgent` | `true` | 没有单独设置的工作区的默认注入值 |
 | `announceByWorkspace` | `{}` | 按工作区覆盖注入开关，键是规范化路径；顶部开关写入，表单不显示 |
-| `announceDetail` | `full` | 提示小节的详细度：`full` 带 note，`compact` 只列 id 与 symbol |
+| `announceDetail` | `compact` | 提示小节的详细度：`compact` 只列 id 与 symbol（默认），`full` 带 note |
 | `citationStyle` | `file+symbol` | `path/File.cs::Symbol` 或 `path/File.cs:123` |
 | `minConfidence` | `medium` | **工具**报告的最低置信度；面板始终拿到全部 |
 | `timeoutMs` | `30000` | 单次扫描时间预算 |
@@ -271,7 +288,7 @@ concepts:
 可控手段：
 
 - **在面板设置里关闭注入**：一次点击、无需重载，去掉提示小节（约 500–3,500 tokens），工具仍然可用；
-- **切到紧凑提示**：把 `announceDetail` 设为 `compact`，提示小节只保留 `id -> symbol`，同一词表大约减少 60–70% 的字符；默认仍是 `full`；
+- **保持紧凑提示**：`announceDetail` 默认就是 `compact`，提示小节只保留 `id -> symbol`，同一词表大约减少 60–70% 的字符；需要 note 时再切到 `full`；
 - **控制词表规模**：它是概念词表，不是字段大全；
 - **停用插件行**：连工具 schema 一起去掉。
 
@@ -316,9 +333,18 @@ pnpm build     # esbuild → lib/index.js（host）+ lib/client.js（浏览器�
 
 贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，其中包含"任何真实项目都不得在本仓库任何地方被识别出来"这一条。
 
+## Schema 版本
+
+| 版本 | 状态 | 说明 |
+|---|---|---|
+| `1` | **0.3.0 冻结** | 命名层词表；`lifecycle` 是最后一个可选字段 |
+| `2` | 草案 | 增加 `behaviors`；第一次持久化 behavior 时 bump；旧插件拒绝 |
+
+决策表、迁移规则和 v2 待定项见 [docs/schema-evolution.md](docs/schema-evolution.md)；0.3.0 升级说明见 [docs/upgrading-to-0.3.0.md](docs/upgrading-to-0.3.0.md)。
+
 ## 路线图
 
-0.2.0 让词表可改名、概念树支持多级。下一步计划是**行为漂移**：确定性的函数索引 + Agent 生成语义摘要 + 人工审核队列。实现路径、验证仓库选型与验收标准见 [docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md)。
+0.3.0 收口 schema v1：lifecycle、默认紧凑提示、批量登记与只读 CI 门禁。下一步是**行为漂移**（0.4.0）：确定性的函数索引 + Agent 生成语义摘要，0.5.0 做人工审核闭环。实现路径、验证仓库选型与验收标准见 [docs/behavior-drift-roadmap.md](docs/behavior-drift-roadmap.md)；v2 格式草案见 [docs/schema-evolution.md](docs/schema-evolution.md)。
 
 ## 许可
 

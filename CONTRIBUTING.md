@@ -64,8 +64,15 @@ pnpm build     # esbuild -> lib/index.js (host) + lib/client.js (browser)
 - `dsh.engines.dsh` states the DSH version the release was tested against. A DSH
   release that changes a service this plugin uses gets a new range in the same
   commit that fixes the compatibility.
-- The vocabulary file format (`version: 1`) is forward compatible: fields are only
-  added, never repurposed, and every new field must be optional.
+- **Schema v1 is frozen at 0.3.0.** The vocabulary format (`version: 1`) only gained
+  optional fields; `lifecycle` was the last one. Do not add another v1 field without
+  a new schema decision.
+- **Schema v2 is a draft.** It adds `behaviors` and bumps `version` to `2` on the
+  first persisted behavior; a v2 reader accepts v1 directly and old plugins reject
+  v2 with `version-unsupported`. The contract is in
+  [`docs/schema-evolution.md`](docs/schema-evolution.md); v2 code does not exist yet.
+- A field added in v1 is optional and may be dropped by an older reader on save.
+  Release notes must warn users not to downgrade and save without a backup.
 - `VERSION` in `src/index.ts` and `package.json` must match; a test enforces it.
 
 ## Publishing credentials
@@ -110,4 +117,6 @@ already on the registry and only creates the GitHub release.
 5. Acceptance, before announcing: in a clean profile, install from npm
    (`dsh plugin --profile <name> add dsh-semantic-drift@X.Y.Z`), then confirm
    `GET /semantic-drift/health` reports 5 tools and 9 routes and the panel scans.
+   Also run `node lib/cli.js --help` and a `scan --all --json` against a fixture;
+   the CLI is a separate `bin`, not a route.
 6. Verify the registry: `npm view dsh-semantic-drift version` and check `files`.
