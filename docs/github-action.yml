@@ -1,0 +1,27 @@
+# Example only; copy into .github/workflows/ in a consuming repository.
+# The CLI is read-only and needs no secret material. `fetch-depth: 0` keeps the base
+# commit available for `--changed`.
+name: Semantic drift
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Scan changed files
+        run: >-
+          npx --yes dsh-semantic-drift@0.3.0 scan
+          --changed
+          --base "${{ github.event.pull_request.base.sha }}"
+          --json
