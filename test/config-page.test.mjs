@@ -76,7 +76,7 @@ const VALUES = {
   vocabularyPath: '.dsh/semantics.yaml',
   announceToAgent: true,
   announceByWorkspace: {},
-  announceDetail: 'full',
+  announceDetail: 'compact',
   citationStyle: 'file+symbol',
   minConfidence: 'medium',
   timeoutMs: 30000,
@@ -93,7 +93,7 @@ const CONFIG = {
   fields: [
     { name: 'vocabularyPath', kind: 'string', description: 'Vocabulary file, relative to the workspace root.', default: '.dsh/semantics.yaml' },
     { name: 'announceToAgent', kind: 'boolean', description: 'Inject the vocabulary into every agent prompt.', default: true },
-    { name: 'announceDetail', kind: 'enum', description: 'Detail of the injected vocabulary section: `full` includes each note, `compact` lists id and symbol only.', options: ['full', 'compact'], default: 'full' },
+    { name: 'announceDetail', kind: 'enum', description: 'Detail of the injected vocabulary section: `compact` lists id and symbol only (the default); `full` includes each note.', options: ['full', 'compact'], default: 'compact' },
     { name: 'citationStyle', kind: 'enum', description: 'Shape of copied references.', options: ['file+symbol', 'file:line'], default: 'file+symbol' },
     { name: 'minConfidence', kind: 'enum', description: 'Lowest confidence the agent tools report.', options: ['high', 'medium', 'low'], default: 'medium' },
     { name: 'timeoutMs', kind: 'number', description: 'Wall-clock budget for one scan.', min: 1000, max: 120000, default: 30000 },
@@ -283,6 +283,13 @@ test('the summary view is one line and renders no form', async () => {
   assert.equal(container.querySelector('form, input, select'), null, 'the summary is text only')
   assert.equal(calls.length, 0, 'the summary reads nothing')
   reactAct(() => root.unmount())
+})
+
+test('the injected-section detail defaults to compact in the schema', () => {
+  const field = configFields().find(entry => entry.name === 'announceDetail')
+  assert.ok(field !== undefined)
+  assert.equal(field.default, 'compact')
+  assert.deepEqual(field.options, ['full', 'compact'])
 })
 
 test('the page renders the nine bundle fields and never the agent-injection switch', async () => {

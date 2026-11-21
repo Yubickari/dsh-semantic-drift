@@ -1,6 +1,6 @@
 {
   "name": "dsh-semantic-drift",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "One versioned vocabulary of a project's business concepts, a read-only drift scan, and the same naming rules in every agent prompt. A DSH plugin.",
   "type": "module",
   "main": "lib/index.js",
@@ -10,6 +10,9 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-semantic-drift": "./lib/cli.js"
   },
   "icon": "icon.svg",
   "files": [

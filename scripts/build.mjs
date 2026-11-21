@@ -1,9 +1,11 @@
 /**
  * Build script.
  *
- * Two artifacts, no framework:
+ * Three artifacts, no framework:
  * - `lib/index.js` — the host half, ESM for Node. DSH packages, `yaml` and
  *   schemastery stay external: the host resolves them from its own installation.
+ * - `lib/cli.js` — the read-only CLI, a Node `bin`; it shares the store and
+ *   scanner but never imports the host half.
  * - `lib/client.js` — the browser half. DSH's web shell evaluates a client
  *   module as `window.__ModuleLoader__.load({ id, factory })`, where `require`
  *   resolves React and any declared externals. The bundle is therefore emitted
@@ -13,7 +15,7 @@
  * half is plain React plus `fetch`.
  */
 import { build } from 'esbuild'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -40,6 +42,16 @@ await build({
   banner: { js: `// ${manifest.name} ${manifest.version} — host half (generated, do not edit)` },
 })
 
+await build({
+  ...shared,
+  entryPoints: [join(root, 'src/cli.ts')],
+  outfile: join(outDir, 'cli.js'),
+  platform: 'node',
+  format: 'esm',
+  external: ['@deepseek-ai/*', 'yaml'],
+})
+await chmod(join(outDir, 'cli.js'), 0o755)
+
 const client = await build({
   ...shared,
   entryPoints: [join(root, 'src/client/index.ts')],
@@ -64,4 +76,4 @@ window.__ModuleLoader__.load({
 });
 `
 await writeFile(join(outDir, 'client.js'), wrapped, 'utf8')
-process.stdout.write(`built ${manifest.name}@${manifest.version}: lib/index.js, lib/client.js\n`)
+process.stdout.write(`built ${manifest.name}@${manifest.version}: lib/index.js, lib/client.js, lib/cli.js\n`)

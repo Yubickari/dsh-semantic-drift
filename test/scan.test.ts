@@ -169,6 +169,26 @@ test('finds the identical duplicate, the diverged contract, the variant and the 
   })
 })
 
+test('term-unmapped skips planned and deprecated concepts', async () => {
+  const root = await fixture()
+  for (const lifecycle of ['planned', 'deprecated'] as const) {
+    const document = vocabulary().concepts.map(concept =>
+      concept.id === 'sample.address' ? { ...concept, lifecycle } : concept,
+    )
+    const summary = await scanWorkspace({
+      ...BASE,
+      root,
+      document: { ...vocabulary(), concepts: document },
+      detectors: ['term-unmapped'],
+    })
+    assert.equal(
+      summary.findings.filter(finding => finding.detector === 'term-unmapped' && finding.conceptId === 'sample.address').length,
+      0,
+      `${lifecycle} must not produce term-unmapped findings`,
+    )
+  }
+})
+
 test('citations follow the configured style', async () => {
   const root = await fixture()
   const summary = await scanWorkspace({ ...BASE, root, document: vocabulary(), citationStyle: 'file:line' })

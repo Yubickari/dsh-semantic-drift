@@ -20,6 +20,10 @@ export interface ParameterSpec {
   required?: boolean
   enum?: readonly (string | number)[]
   items?: ParameterSpec
+  /** Object members; used by array-of-object parameters such as a batch upsert. */
+  properties?: Record<string, ParameterSpec>
+  /** Required member names when this spec describes an object. */
+  requiredKeys?: readonly string[]
   default?: unknown
 }
 
@@ -57,6 +61,13 @@ function toJsonSchema(spec: ParameterSpec): JsonSchema {
   if (spec.enum !== undefined) schema.enum = spec.enum
   if (spec.default !== undefined) schema.default = spec.default
   if (spec.items !== undefined) schema.items = toJsonSchema(spec.items)
+  if (spec.properties !== undefined) {
+    schema.properties = Object.fromEntries(
+      Object.entries(spec.properties).map(([name, property]) => [name, toJsonSchema(property)]),
+    )
+    if (spec.requiredKeys !== undefined && spec.requiredKeys.length > 0) schema.required = [...spec.requiredKeys]
+    schema.additionalProperties = false
+  }
   return schema
 }
 

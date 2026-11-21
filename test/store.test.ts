@@ -89,6 +89,21 @@ test('serialization is canonical and self-consistent', () => {
   assert.deepEqual(serializeVocabulary(parsed.document), text)
 })
 
+test('a future vocabulary version is refused instead of silently downgraded', () => {
+  const text = 'version: 2\nexclude: []\nconcepts: []\n'
+  const parsed = parseVocabularyText(text)
+  assert.equal(parsed.document.version, 1, 'the fallback document stays on the version this build writes')
+  const issue = parsed.issues.find(entry => entry.code === 'version-unsupported')
+  assert.ok(issue !== undefined)
+  assert.equal(issue?.severity, 'error')
+  assert.match(issue?.message ?? '', /Upgrade the plugin/)
+})
+
+test('a non-numeric version is an error, not a default', () => {
+  const parsed = parseVocabularyText('version: "1"\nexclude: []\nconcepts: []\n')
+  assert.ok(parsed.issues.some(issue => issue.code === 'version-shape'))
+})
+
 test('duplicate ids and duplicate symbols are refused with positioned issues', async () => {
   const root = await workspace()
   const document = sample()

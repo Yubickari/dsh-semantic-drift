@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
+import { parse as parseYaml } from 'yaml'
 import { DETECTOR_IDS, DETECTOR_RULES } from '../src/protocol.ts'
 
 /**
@@ -63,3 +64,65 @@ for (const file of ['README.md', 'README.zh.md']) {
     assert.doesNotMatch(text, /\| Toast \|/, `${file} still documents a removed toast channel`)
   })
 }
+
+
+test('the schema evolution doc states the v1 freeze and keeps v2 a draft', () => {
+  const text = readFileSync(join(import.meta.dirname, '..', 'docs', 'schema-evolution.md'), 'utf8')
+  assert.match(text, /v1 已冻结/)
+  assert.match(text, /v2 仍是草案/)
+  assert.match(text, /lifecycle/)
+  assert.match(text, /version: 1/)
+  assert.match(text, /semantic_upgrade/)
+  assert.match(text, /第一次持久化 behavior/)
+})
+
+test('both READMEs document lifecycle, the compact default and the CLI', () => {
+  for (const file of ['README.md', 'README.zh.md']) {
+    const text = readFileSync(join(import.meta.dirname, '..', file), 'utf8')
+    assert.match(text, /lifecycle/, `${file} does not document lifecycle`)
+    assert.match(text, /compact/, `${file} does not document the compact default`)
+    assert.match(text, /--changed/, `${file} does not document the CLI`)
+    assert.match(text, /schema-evolution\.md/, `${file} does not link the schema doc`)
+  }
+})
+
+test('the GitHub Actions example is valid and runs the read-only CLI', () => {
+  const text = readFileSync(join(import.meta.dirname, '..', 'docs', 'github-action.yml'), 'utf8')
+  const workflow = parseYaml(text) as { jobs?: Record<string, { steps?: Array<{ run?: string }> }> }
+  assert.ok(workflow.jobs !== undefined)
+  const steps = Object.values(workflow.jobs).flatMap(job => job.steps ?? [])
+  const command = steps.map(step => step.run ?? '').join('\n')
+  assert.match(command, /dsh-semantic-drift@0\.3\.0 scan/)
+  assert.match(command, /--changed/)
+  assert.match(command, /--json/)
+  assert.doesNotMatch(command, /secrets\./)
+})
+
+test('the 0.3.0 release plan names the frozen scope and cancels 0.3.1', () => {
+  const text = readFileSync(join(import.meta.dirname, '..', 'docs', 'release-plan-0.3.0.md'), 'utf8')
+  for (const issue of ['#24', '#22', '#31', '#26', '#25']) assert.ok(text.includes(issue), `missing ${issue}`)
+  assert.match(text, /0\.3\.1 不在计划内/)
+  assert.match(text, /lifecycle/)
+  assert.match(text, /--changed/)
+})
+
+
+test('the CLI and upgrade references cover the shipped 0.3.0 behavior', () => {
+  const cli = readFileSync(join(import.meta.dirname, '..', 'docs', 'cli.md'), 'utf8')
+  for (const flag of ['--changed', '--all', '--base', '--json', '--min-confidence']) {
+    assert.ok(cli.includes(flag), `CLI doc is missing ${flag}`)
+  }
+  assert.match(cli, /Exit codes/)
+  assert.match(cli, /never writes/)
+
+  const upgrading = readFileSync(join(import.meta.dirname, '..', 'docs', 'upgrading-to-0.3.0.md'), 'utf8')
+  assert.match(upgrading, /Downgrade warning/)
+  assert.match(upgrading, /lifecycle/)
+  assert.match(upgrading, /No schema v2/)
+
+  for (const file of ['README.md', 'README.zh.md']) {
+    const text = readFileSync(join(import.meta.dirname, '..', file), 'utf8')
+    assert.match(text, /docs\/cli\.md/, `${file} does not link the CLI reference`)
+    assert.match(text, /docs\/upgrading-to-0\.3\.0\.md/, `${file} does not link the upgrade notes`)
+  }
+})

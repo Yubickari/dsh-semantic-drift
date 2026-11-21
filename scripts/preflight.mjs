@@ -61,9 +61,12 @@ const parsed = JSON.parse(packed)
 // npm 12 keys the report by package name; older versions return an array.
 const entry = Array.isArray(parsed) ? parsed[0] : parsed[Object.keys(parsed)[0]]
 const files = entry.files.map(file => file.path)
-for (const required of ['lib/index.js', 'lib/client.js', 'cordis.patch.yml', 'locale/en.json', 'icon.svg']) {
+for (const required of ['lib/index.js', 'lib/client.js', 'lib/cli.js', 'cordis.patch.yml', 'locale/en.json', 'icon.svg']) {
   if (!files.includes(required)) fail(`the package would miss ${required}`)
 }
 steps.push(`package contents (${files.length} files)`)
+
+run('node', ['lib/cli.js', '--help'])
+steps.push('CLI responds')
 
 console.log(`\n✔ preflight passed: ${steps.join(' · ')}`)

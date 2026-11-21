@@ -1,6 +1,37 @@
 # Changelog
 
+## 0.3.0
+
+The last schema v1 release: the format is frozen, the default prompt is cheaper,
+and registration plus CI get faster.
+
+- **Vocabulary schema v1 is frozen.** `version: 1` stays, and `lifecycle` is the
+  last optional field. v2 (`behaviors`) is still a draft; 0.3.0 implements no v2
+  code.
+- **New optional `lifecycle: planned | active | deprecated`.** Omitted means
+  `active`; `planned` and `deprecated` are skipped by `term-unmapped` and marked in
+  the prompt. An older 0.2.x plugin ignores the field and drops it on its next save,
+  so do not downgrade and save without a backup.
+- **`announceDetail` now defaults to `compact`.** The injected section keeps
+  `id -> symbol` and drops notes; explicit `full` still includes them. On the
+  63-concept sample the block drops from 6,883 to 3,110 characters.
+- **Batch registration.** `semantic_upsert` accepts `concepts` and reports each item
+  separately; one bad item does not block the rest. `id-format` issues carry a
+  suggested id but are never auto-corrected. Writes are atomic.
+- **Read-only CLI and CI gate.** `dsh-semantic-drift scan --changed --json` scans the
+  workspace and reports findings touching changed files; exit codes are 0/1/2. It
+  never writes the vocabulary. An Actions example is in
+  [docs/github-action.yml](docs/github-action.yml).
+- **0.2.2 is included.** The local `/health` and `/state` `announceDetail` fix was
+  never published on its own; it ships here.
+- No vocabulary version bump and no tool-count change: five tools and nine routes.
+- Upgrade notes: [docs/upgrading-to-0.3.0.md](docs/upgrading-to-0.3.0.md). CLI
+  reference: [docs/cli.md](docs/cli.md). Schema contract:
+  [docs/schema-evolution.md](docs/schema-evolution.md).
+
 ## 0.2.2
+
+This local hotfix was never published on its own; it ships in 0.3.0.
 
 A local hotfix; this version is not published to npm.
 

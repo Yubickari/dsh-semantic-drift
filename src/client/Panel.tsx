@@ -15,6 +15,7 @@ import type {
   AcceptRequest,
   AcceptedException,
   Concept,
+  ConceptLifecycle,
   DriftFinding,
   ScanResponse,
   StateResponse,
@@ -403,6 +404,12 @@ export function SemanticPanel(props: PanelProps) {
         || concept.terms.some(term => term.toLowerCase().includes(needle))
     })
   }, [concepts, filter, query, visibleCounts])
+
+  const lifecycleCounts = useMemo(() => {
+    const counts: Record<ConceptLifecycle, number> = { active: 0, planned: 0, deprecated: 0 }
+    for (const concept of concepts) counts[concept.lifecycle ?? 'active']++
+    return counts
+  }, [concepts])
 
   const selectedConcept = selection.kind === 'concept'
     ? concepts.find(concept => concept.id === selection.id)
@@ -1074,6 +1081,7 @@ export function SemanticPanel(props: PanelProps) {
           onQuery={setQuery}
           filter={filter}
           onFilter={setFilter}
+          lifecycleCounts={lifecycleCounts}
           driftCounts={visibleCounts}
           unclassified={unclassified.length}
           showUnclassified={true}

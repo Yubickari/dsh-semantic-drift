@@ -54,6 +54,11 @@ export function ConceptDetail(props: ConceptDetailProps) {
       <div className="sd-concept-title">
         <span className="sd-concept-id sd-mono">{concept.id}</span>
         <span className="sd-tag">{t(`kind.${concept.kind}`)}</span>
+        {concept.lifecycle !== undefined && concept.lifecycle !== 'active' && (
+          <span className="sd-tag sd-tag-strong" data-lifecycle={concept.lifecycle}>
+            {t(`lifecycle.${concept.lifecycle}`)}
+          </span>
+        )}
         <span className="sd-spacer" />
         <button type="button" className="sd-button" onClick={() => props.onEdit(concept)}>
           <EditIcon />

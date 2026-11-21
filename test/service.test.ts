@@ -417,7 +417,7 @@ test('liveConfig reads every field type live and falls back to the schema defaul
   assert.deepEqual(bare.detectors, ['term-unmapped'])
   const absent = liveConfig<SemanticConfig>(undefined)
   assert.equal(absent.announceToAgent, true)
-  assert.equal(absent.announceDetail, 'full')
+  assert.equal(absent.announceDetail, 'compact')
   assert.equal(absent.citationStyle, 'file+symbol')
   assert.deepEqual(absent.detectors, ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'])
   assert.equal(Object.keys(absent).length, 11, 'every field is reachable, so no reader sees undefined')

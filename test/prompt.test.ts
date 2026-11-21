@@ -48,6 +48,11 @@ async function fixture(): Promise<string> {
       '    kind: quantity',
       '    canonical: {symbol: TargetTemperature, type: double}',
       '    note: The temperature the device is asked to reach.',
+      '  - id: device.mode',
+      '    terms: [设备模式]',
+      '    kind: status',
+      '    lifecycle: planned',
+      '    canonical: {symbol: DeviceMode}',
       '',
     ].join('\n'),
     'utf8',
@@ -86,9 +91,11 @@ test('full keeps notes and compact drops them, including across a cache hit', as
 
   const full = buildPromptText({}, config('full'), workspace)
   assert.match(full, /device\.temperature \(quantity\) -> TargetTemperature: The temperature/)
+  assert.match(full, /device\.mode \(status\) -> DeviceMode \[planned\]/, 'non-active lifecycle is marked')
 
   const compact = buildPromptText({}, config('compact'), workspace)
   assert.match(compact, /- device\.temperature -> TargetTemperature/)
+  assert.match(compact, /- device\.mode -> DeviceMode \[planned\]/, 'compact keeps the lifecycle marker')
   assert.doesNotMatch(compact, /The temperature/, 'compact must not carry the note')
   assert.ok(compact.length < full.length, 'compact must be shorter than full on the same vocabulary')
 

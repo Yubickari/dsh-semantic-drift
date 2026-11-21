@@ -17,6 +17,7 @@ import { DEFAULT_VOCABULARY_PATH, DETECTOR_IDS } from './protocol.ts'
 import type {
   AcceptedException,
   Concept,
+  ConceptLifecycle,
   Confidence,
   DetectorId,
   ExceptionChange,
@@ -32,8 +33,10 @@ import {
   emptyVocabulary,
   hasErrors,
   loadVocabulary,
+  parseVocabularyText,
   saveRawVocabulary,
   saveVocabulary,
+  serializeVocabulary,
 } from './store.ts'
 import { scanWorkspace, ScanError } from './scan/index.ts'
 import type { WorkspaceResolver, WorkspaceTarget } from './workspace.ts'
@@ -107,6 +110,38 @@ export interface ExceptionResult {
   changed: ExceptionChange
 }
 
+/** One upsert request, for the single and the batch entry point. */
+export interface UpsertInput {
+  concept: Partial<Concept> & { id?: string }
+  mode?: 'merge' | 'replace'
+}
+
+/** Outcome of one upsert request. */
+export interface UpsertResult {
+  state: VocabularyState
+  concept: Concept
+  created: boolean
+}
+
+/** One item of a batch upsert, addressed by its position in the request. */
+export interface BatchUpsertItem {
+  index: number
+  ok: boolean
+  code?: string
+  message?: string
+  issues?: ValidationIssue[]
+  concept?: Concept
+}
+
+/** Outcome of a batch upsert: the file is written once, after every item. */
+export interface BatchUpsertResult {
+  state: VocabularyState
+  results: BatchUpsertItem[]
+  created: number
+  updated: number
+  failed: number
+}
+
 /** The vocabulary operations both halves share. */
 export interface SemanticService {
   listWorkspaces(): WorkspaceOption[]
@@ -118,10 +153,9 @@ export interface SemanticService {
   init(requested?: string): Promise<VocabularyState>
   /** Add, update, remove or clear the accepted exceptions of one concept. */
   changeException(requested: string | undefined, input: ExceptionInput): Promise<ExceptionResult>
-  upsert(
-    requested: string | undefined,
-    input: { concept: Partial<Concept> & { id?: string }; mode?: 'merge' | 'replace' },
-  ): Promise<{ state: VocabularyState; concept: Concept; created: boolean }>
+  upsert(requested: string | undefined, input: UpsertInput): Promise<UpsertResult>
+  /** Upsert several concepts; one bad item does not block the others. */
+  upsertMany(requested: string | undefined, inputs: readonly UpsertInput[]): Promise<BatchUpsertResult>
 }
 
 /** Truncate the raw text the panel receives so one huge file cannot jam the UI. */
@@ -148,11 +182,13 @@ function coerceConcept(input: Partial<Concept> & { id?: string }, existing?: Con
   if (unit !== undefined) canonical.unit = unit
   const note = input.note ?? existing?.note
   const accepted = input.accepted ?? existing?.accepted
+  const lifecycle = input.lifecycle ?? existing?.lifecycle
   return {
     id: input.id ?? existing?.id ?? '',
     terms: input.terms ?? existing?.terms ?? [],
     kind: input.kind ?? existing?.kind ?? 'entity',
     canonical,
+    ...(lifecycle === undefined || lifecycle === 'active' ? {} : { lifecycle }),
     ...(note === undefined ? {} : { note }),
     ...(accepted === undefined ? {} : { accepted }),
   }
@@ -384,10 +420,85 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     )
   }
 
+  /**
+   * Apply several upserts against one in-memory document and write once.
+   *
+   * Each item is validated against the document produced by the items before
+   * it, so a bad item is reported with its position and does not poison the
+   * rest. The file is written only when at least one item succeeded, which
+   * keeps the batch atomic from the caller's point of view.
+   */
+  const upsertMany = async (
+    requested: string | undefined,
+    inputs: readonly UpsertInput[],
+  ): Promise<BatchUpsertResult> => {
+    const target = await workspace.resolve(requested)
+    const current = await load(target)
+    if (hasErrorIssues(current)) refuseInvalid(current)
+    if (inputs.length === 0) throw new SemanticError('bad-request', 'concepts must not be empty.')
+
+    let working: VocabularyDocument = current.document
+    const results: BatchUpsertItem[] = []
+    let created = 0
+    let updated = 0
+    let failed = 0
+
+    for (const [index, input] of inputs.entries()) {
+      const id = input.concept.id?.trim()
+      if (id === undefined || id === '') {
+        failed++
+        results.push({ index, ok: false, code: 'bad-request', message: 'concept.id is required.' })
+        continue
+      }
+      const existingIndex = working.concepts.findIndex(entry => entry.id === id)
+      const existing = existingIndex >= 0 ? working.concepts[existingIndex] : undefined
+      const mode = input.mode ?? 'merge'
+      const next = existing !== undefined && mode === 'replace'
+        ? coerceConcept({ ...input.concept, id })
+        : coerceConcept({ ...input.concept, id }, existing)
+      const candidateConcepts = existingIndex >= 0
+        ? working.concepts.map((entry, position) => (position === existingIndex ? next : entry))
+        : [...working.concepts, next]
+      const candidate: VocabularyDocument = { ...working, concepts: candidateConcepts }
+      const parsed = parseVocabularyText(serializeVocabulary(candidate))
+      const errors = parsed.issues.filter(issue => issue.severity === 'error')
+      if (errors.length > 0) {
+        failed++
+        results.push({
+          index,
+          ok: false,
+          code: 'invalid-vocabulary',
+          message: `Concept \`${id}\` was not written because it failed validation.`,
+          issues: errors,
+        })
+        continue
+      }
+      const nextIndex = existingIndex >= 0 ? existingIndex : candidateConcepts.length - 1
+      const normalized = parsed.document.concepts[nextIndex] ?? next
+      working = { ...working, concepts: candidateConcepts }
+      if (existingIndex >= 0) updated++
+      else created++
+      results.push({ index, ok: true, concept: normalized })
+    }
+
+    if (created + updated === 0) {
+      return { state: current, results, created, updated, failed }
+    }
+    const result = await saveVocabulary(target.path, relativePath(), working)
+    if (!result.ok) {
+      throw new SemanticError(
+        'invalid-vocabulary',
+        'The batch was not written because the final document failed validation.',
+        result.issues,
+      )
+    }
+    return { state: result.state, results, created, updated, failed }
+  }
+
   const upsert = async (
     requested: string | undefined,
-    input: { concept: Partial<Concept> & { id?: string }; mode?: 'merge' | 'replace' },
-  ): Promise<{ state: VocabularyState; concept: Concept; created: boolean }> => {
+    input: UpsertInput,
+  ): Promise<UpsertResult> => {
     const target = await workspace.resolve(requested)
     const current = await load(target)
     if (hasErrorIssues(current)) refuseInvalid(current)
@@ -459,6 +570,7 @@ export function createSemanticService(options: SemanticServiceOptions): Semantic
     init,
     changeException,
     upsert,
+    upsertMany,
   }
 }
 
