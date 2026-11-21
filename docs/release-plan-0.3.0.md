@@ -179,5 +179,5 @@
 
 - 分支：`release/0.3.0-preview`，已 push 到 origin。
 - PR：[#35](https://github.com/Yubickari/dsh-semantic-drift/pull/35)，draft，标签 `pre-release`；未合并。
-- 本地 DSH：desktop profile 的 `dsh-semantic-drift` 为 `link:/Users/lijiajian/Code/dsh-semantic-drift`，重新加载后 `/semantic-drift/health` 返回 `version: 0.3.0`、`tools: 5`、`routes: 9`，`/state` 生效 `announceDetail: compact`。
+- 本地 DSH：desktop profile 的 `dsh-semantic-drift` 指向本仓库的本地链接；重新加载后 `/semantic-drift/health` 返回 `version: 0.3.0`、`tools: 5`、`routes: 9`，`/state` 生效 `announceDetail: compact`。
 - 未创建 tag、GitHub Release 或 npm 包；这些在真实项目测试通过后执行。
