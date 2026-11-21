@@ -17,8 +17,8 @@ import { readFileSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { announceEnabled } from './config.ts'
-import type { ConceptKind } from './protocol.ts'
-import { CONCEPT_KINDS, DEFAULT_VOCABULARY_PATH } from './protocol.ts'
+import type { ConceptKind, ConceptLifecycle } from './protocol.ts'
+import { CONCEPT_KINDS, CONCEPT_LIFECYCLES, DEFAULT_VOCABULARY_PATH } from './protocol.ts'
 import type { SemanticConfig } from './service.ts'
 import { workspaceKey } from './workspace.ts'
 import type { WorkspaceResolver } from './workspace.ts'
@@ -98,15 +98,21 @@ function conceptLines(file: string, detail: 'full' | 'compact'): VocabularyBody 
     const canonical = isRecord(entry.canonical) ? entry.canonical : {}
     const symbol = typeof canonical.symbol === 'string' ? canonical.symbol : ''
     if (id === '' || symbol === '') continue
+    const lifecycle = typeof entry.lifecycle === 'string'
+      && entry.lifecycle !== 'active'
+      && (CONCEPT_LIFECYCLES as readonly string[]).includes(entry.lifecycle)
+      ? (entry.lifecycle as ConceptLifecycle)
+      : undefined
+    const marker = lifecycle === undefined ? '' : ` [${lifecycle}]`
     if (detail === 'compact') {
-      lines.push(`- ${id} -> ${symbol}`)
+      lines.push(`- ${id} -> ${symbol}${marker}`)
       continue
     }
     const kind = typeof entry.kind === 'string' && (CONCEPT_KINDS as readonly string[]).includes(entry.kind)
       ? (entry.kind as ConceptKind)
       : undefined
     const note = typeof entry.note === 'string' ? oneLine(entry.note) : ''
-    const head = kind === undefined ? `${id} -> ${symbol}` : `${id} (${kind}) -> ${symbol}`
+    const head = kind === undefined ? `${id} -> ${symbol}${marker}` : `${id} (${kind}) -> ${symbol}${marker}`
     lines.push(note === '' ? `- ${head}` : `- ${head}: ${note}`)
   }
   const body: VocabularyBody = { kind: 'concepts', lines, count: concepts.length }

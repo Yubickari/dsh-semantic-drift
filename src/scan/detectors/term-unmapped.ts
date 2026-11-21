@@ -57,6 +57,9 @@ export function createTermUnmappedDetector(): Detector {
       termIndex = new Map()
       const terms: string[] = []
       for (const concept of ctx.concepts) {
+        // planned and deprecated concepts are not expected to have adopted the
+        // canonical spelling yet; a low-confidence finding about them is noise.
+        if ((concept.lifecycle ?? 'active') !== 'active') continue
         const canonical = concept.canonical.symbol
         if (canonical === '') continue
         const usable = concept.terms.filter(term => term.length >= 2)
