@@ -1,0 +1,13 @@
+version: 1
+meta:
+  project: dsh-semantic-drift
+  updated: 2026-11-21
+exclude: [ "**/node_modules/**", "**/dist/**", "**/bin/**", "**/obj/**", .git/**, "**/.git/**", "**/target/**", "**/vendor/**", "**/__pycache__/**", "**/.venv/**", .nuget/**, artifacts/**, .tmp/**, TestResults/**, BenchmarkDotNet.Artifacts/** ]
+concepts:
+  - id: concept.lifecycle
+    terms: [ 概念生命周期, 生命周期, concept lifecycle ]
+    kind: enum
+    canonical:
+      symbol: ConceptLifecycle
+      type: "enum: planned | active | deprecated"
+    note: "概念的阶段：planned（已登记未实现）、active（缺省）、deprecated（仅保留历史）；与 kind: status 的概念种类无关。"
