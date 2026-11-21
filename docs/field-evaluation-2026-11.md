@@ -216,6 +216,7 @@
   - **成本**：S。
 
 - [ ] **P0-2 概念状态 `planned | active | deprecated`**
+  - **实现说明（2026-11-21）**：0.3.0 最终字段名为 `lifecycle`，不是 `status`；本评估保留当时的表述。见 [schema-evolution.md](schema-evolution.md)。
   - **做法**：给概念加可选 `status`（默认 `active`）；`planned` 不参与覆盖率、不触发 `term-unmapped`；提示段用紧凑标记展示状态；v1 词表保持前向兼容。
   - **收益**：A 的 12 条“已登记未实现”概念不再被误算成“已落地”；当前 3 条 low 误报（中文通用词）可以直接消失；路线图与词表合一，下一阶段推进时能看到“哪些契约已冻结、哪些还没实现”。
   - **验收**：A 的 12 条标记为 `planned` 后，覆盖率报告从 27 条口径变为 15 条口径；`term-unmapped` 不再报这 3 条；`active` 行为不变。
