@@ -1,6 +1,6 @@
 # 0.3.0 发布方案（schema v1 收口版）
 
-> **状态**：本地实现与测试完成（2026-11-21）；未提交 release PR、未打 tag、未发布 npm。
+> **状态**：0.3.0 pre-release 已作为分支推送（[PR #35](https://github.com/Yubickari/dsh-semantic-drift/pull/35)，draft + `pre-release` 标签）；当前 DSH desktop profile 已加载本地 0.3.0。**未打 tag、未发布 npm、未创建 GitHub Release**，等真实项目测试完成后再发。
 >
 > **目标版本**：0.3.0（minor）。**0.3.1 不在计划内**；只有发布后出现阻断性 bug 才发 patch。
 >
@@ -173,3 +173,11 @@
 | `docs(0.3.0): release plan, upgrade notes and README sync` | release plan、upgrading、READMEs、CONTRIBUTING、CHANGELOG |
 | `chore(release): 0.3.0 manifest and rebuilt artifacts` | package.json、VERSION、lib/* |
 | `chore(vocabulary): record concept.lifecycle` | `.dsh/semantics.yaml` |
+
+
+## 13. 预发布状态（2026-11-21）
+
+- 分支：`release/0.3.0-preview`，已 push 到 origin。
+- PR：[#35](https://github.com/Yubickari/dsh-semantic-drift/pull/35)，draft，标签 `pre-release`；未合并。
+- 本地 DSH：desktop profile 的 `dsh-semantic-drift` 为 `link:/Users/lijiajian/Code/dsh-semantic-drift`，重新加载后 `/semantic-drift/health` 返回 `version: 0.3.0`、`tools: 5`、`routes: 9`，`/state` 生效 `announceDetail: compact`。
+- 未创建 tag、GitHub Release 或 npm 包；这些在真实项目测试通过后执行。
