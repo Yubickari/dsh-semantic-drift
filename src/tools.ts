@@ -14,8 +14,8 @@
 
 import { defineTool } from './define-tool.ts'
 import type { ToolDefinition } from './define-tool.ts'
-import { CONCEPT_KINDS, CONFIDENCE_LEVELS, DETECTOR_IDS } from './protocol.ts'
-import type { Concept, ConceptKind, Confidence, DetectorId, DriftFinding, ExceptionOp } from './protocol.ts'
+import { CONCEPT_KINDS, CONCEPT_LIFECYCLES, CONFIDENCE_LEVELS, DETECTOR_IDS } from './protocol.ts'
+import type { Concept, ConceptKind, ConceptLifecycle, Confidence, DetectorId, DriftFinding, ExceptionOp } from './protocol.ts'
 import { SemanticError } from './service.ts'
 import type { SemanticService } from './service.ts'
 import type { WorkspaceTarget } from './workspace.ts'
@@ -63,15 +63,39 @@ function splitList(value: string | undefined): string[] {
     .filter(part => part !== '')
 }
 
-function conceptView(concept: Concept): Record<string, unknown> {
+/** `non-active` keeps list output small; `active` is the default and omitted there. */
+type LifecycleView = 'always' | 'non-active'
+
+function conceptView(concept: Concept, lifecycleView: LifecycleView = 'always'): Record<string, unknown> {
+  const lifecycle = concept.lifecycle ?? 'active'
   return {
     id: concept.id,
     terms: concept.terms,
     kind: concept.kind,
     canonical: concept.canonical,
+    ...(lifecycleView === 'always' || lifecycle !== 'active' ? { lifecycle } : {}),
     ...(concept.note === undefined ? {} : { note: concept.note }),
     ...(concept.accepted === undefined || concept.accepted.length === 0 ? {} : { accepted: concept.accepted }),
   }
+}
+
+/** Build the concept patch a single call or one batch item describes. */
+function conceptFromArgs(args: Record<string, unknown>): Partial<Concept> & { id?: string } {
+  const concept: Partial<Concept> & { id?: string } = {}
+  if (typeof args.conceptId === 'string') concept.id = args.conceptId
+  const terms = splitList(typeof args.terms === 'string' ? args.terms : undefined)
+  if (terms.length > 0) concept.terms = terms
+  if (typeof args.kind === 'string') concept.kind = args.kind as ConceptKind
+  if (typeof args.lifecycle === 'string') concept.lifecycle = args.lifecycle as ConceptLifecycle
+  if (typeof args.note === 'string') concept.note = args.note
+  if (typeof args.symbol === 'string' || typeof args.symbolType === 'string' || typeof args.unit === 'string') {
+    const canonical: { symbol?: string; type?: string; unit?: string } = {}
+    if (typeof args.symbol === 'string' && args.symbol !== '') canonical.symbol = args.symbol
+    if (typeof args.symbolType === 'string') canonical.type = args.symbolType
+    if (typeof args.unit === 'string') canonical.unit = args.unit
+    concept.canonical = canonical
+  }
+  return concept
 }
 
 function findingView(finding: DriftFinding): Record<string, unknown> {
@@ -119,6 +143,7 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
     description: [
       'List the project vocabulary: one entry per concept, with its dotted id, canonical symbol, kind and note.',
       'Use it before naming a field, type, enum or message so the new name matches the recorded concept.',
+      '`counts` is the whole vocabulary split by lifecycle; list entries only carry `lifecycle` when it is not active.',
       '`hasDrift` is expensive: it runs a scan and returns each concept\'s finding count.',
     ].join(' '),
     parameters: {
@@ -131,6 +156,8 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
       try {
         const target = await host.resolveForSession(sessionOf(exec))
         const state = await service.state(target.path)
+        const lifecycleCounts: Record<ConceptLifecycle, number> = { active: 0, planned: 0, deprecated: 0 }
+        for (const concept of state.vocabulary.document.concepts) lifecycleCounts[concept.lifecycle ?? 'active']++
         const query = args.query?.trim().toLowerCase() ?? ''
         const group = args.group?.trim()
         let concepts = state.vocabulary.document.concepts
@@ -158,10 +185,12 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
           vocabularyFile: state.vocabulary.relativeFile,
           vocabularyExists: state.vocabulary.exists,
           total: state.vocabulary.document.concepts.length,
+          returned: concepts.length,
+          counts: lifecycleCounts,
           valid: state.vocabulary.valid,
           ...(state.vocabulary.issues.length === 0 ? {} : { issues: state.vocabulary.issues.slice(0, 3) }),
           concepts: concepts.map(concept => ({
-            ...conceptView(concept),
+            ...conceptView(concept, 'non-active'),
             ...(counts === undefined ? {} : { driftCount: counts.get(concept.id) ?? 0 }),
           })),
         })
@@ -226,39 +255,86 @@ export function buildSemanticTools(host: SemanticToolHost): ToolDefinition[] {
   const upsert = defineTool({
     name: 'semantic_upsert',
     description: [
-      'Create or update one vocabulary concept, using the same validation the panel uses.',
+      'Create or update vocabulary concepts, using the same validation the panel uses.',
+      'Pass `conceptId` for one concept, or `concepts` for a batch; batch items report their own issues and one bad item does not block the rest.',
       'Validation failures are returned as `ok:false` with positioned `issues`; nothing is written then.',
       'In merge mode (the default) omitted fields keep their current value, so a partial update is safe.',
+      '`lifecycle` is planned, active or deprecated; omitted means active on create and is preserved on merge.',
     ].join(' '),
     parameters: {
-      conceptId: { type: 'string', required: true, description: 'Dotted id, e.g. "device.target_temperature". Required and cannot be renamed.' },
+      conceptId: { type: 'string', description: 'Single-concept mode: dotted id, e.g. "device.target_temperature". Required unless `concepts` is passed.' },
       terms: { type: 'string', description: 'Comma separated Chinese terms and aliases. Required when creating.' },
       kind: { type: 'string', enum: [...CONCEPT_KINDS], description: 'Concept kind. Defaults to entity when creating.' },
-      symbol: { type: 'string', required: true, description: 'Canonical symbol. Required when creating; must be unique across the vocabulary.' },
+      symbol: { type: 'string', description: 'Canonical symbol. Required when creating; must be unique across the vocabulary.' },
       symbolType: { type: 'string', description: 'Free-text canonical type, for display.' },
       unit: { type: 'string', description: 'Canonical unit; meaningful for kind=quantity.' },
+      lifecycle: { type: 'string', enum: [...CONCEPT_LIFECYCLES], description: 'Concept lifecycle. Omitted means active on create; merge preserves the current value.' },
       note: { type: 'string', description: 'One sentence describing the concept.' },
-      mode: { type: 'string', enum: ['merge', 'replace'], description: 'merge keeps omitted fields; replace rebuilds the entry (default merge).' },
+      mode: { type: 'string', enum: ['merge', 'replace'], description: 'merge keeps omitted fields; replace rebuilds each entry (default merge).' },
+      concepts: {
+        type: 'array',
+        description: 'Batch mode: items use the same fields as the single call (conceptId, terms, kind, symbol, symbolType, unit, lifecycle, note). `mode` applies to every item.',
+        items: {
+          type: 'object',
+          properties: {
+            conceptId: { type: 'string', description: 'Dotted id, e.g. "device.target_temperature".' },
+            terms: { type: 'string', description: 'Comma separated terms and aliases.' },
+            kind: { type: 'string', enum: [...CONCEPT_KINDS], description: 'Concept kind. Defaults to entity when creating.' },
+            symbol: { type: 'string', description: 'Canonical symbol.' },
+            symbolType: { type: 'string', description: 'Canonical type, for display.' },
+            unit: { type: 'string', description: 'Canonical unit.' },
+            lifecycle: { type: 'string', enum: [...CONCEPT_LIFECYCLES], description: 'Concept lifecycle.' },
+            note: { type: 'string', description: 'One sentence describing the concept.' },
+          },
+          requiredKeys: ['conceptId'],
+        },
+      },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     async execute(args, exec) {
       try {
         const target = await host.resolveForSession(sessionOf(exec))
-        const terms = splitList(args.terms)
-        const concept: Partial<Concept> & { id?: string } = { id: args.conceptId }
-        if (terms.length > 0) concept.terms = terms
-        if (args.kind !== undefined) concept.kind = args.kind as ConceptKind
-        if (args.note !== undefined) concept.note = args.note
-        if (args.symbol !== undefined || args.symbolType !== undefined || args.unit !== undefined) {
-          const canonical: { symbol?: string; type?: string; unit?: string } = {}
-          if (args.symbol !== undefined && args.symbol !== '') canonical.symbol = args.symbol
-          if (args.symbolType !== undefined) canonical.type = args.symbolType
-          if (args.unit !== undefined) canonical.unit = args.unit
-          ;(concept as { canonical?: typeof canonical }).canonical = canonical
+        const mode = args.mode === 'merge' || args.mode === 'replace' ? args.mode : undefined
+        const singleId = typeof args.conceptId === 'string' ? args.conceptId.trim() : ''
+        const rawBatch = Array.isArray(args.concepts) ? args.concepts : undefined
+        if (rawBatch !== undefined && singleId !== '') {
+          return refused('bad-request', 'Pass either conceptId or concepts, not both.')
         }
+        if (rawBatch !== undefined) {
+          if (rawBatch.length === 0) return refused('bad-request', 'concepts must not be empty.')
+          if (rawBatch.some(item => typeof item !== 'object' || item === null || Array.isArray(item))) {
+            return refused('bad-request', 'Each `concepts` item must be an object.')
+          }
+          const inputs = (rawBatch as Array<Record<string, unknown>>).map(item => ({
+            concept: conceptFromArgs(item),
+            ...(mode === undefined ? {} : { mode }),
+          }))
+          const result = await service.upsertMany(target.path, inputs)
+          const wrote = result.created + result.updated > 0
+          return json({
+            ok: wrote,
+            ...(wrote
+              ? {}
+              : {
+                  code: 'invalid-vocabulary',
+                  message: 'No concept in the batch was written.',
+                  issues: result.results.flatMap(item => item.issues ?? []),
+                }),
+            created: result.created,
+            updated: result.updated,
+            failed: result.failed,
+            results: result.results.map(item => ({
+              ...item,
+              ...(item.concept === undefined ? {} : { concept: conceptView(item.concept) }),
+            })),
+            vocabularyFile: result.state.relativeFile,
+          })
+        }
+        if (singleId === '') return refused('bad-request', 'Pass conceptId or concepts.')
+        const concept = conceptFromArgs({ ...args, conceptId: singleId })
         const result = await service.upsert(target.path, {
           concept,
-          ...(args.mode === 'merge' || args.mode === 'replace' ? { mode: args.mode } : {}),
+          ...(mode === undefined ? {} : { mode }),
         })
         return json({
           ok: true,

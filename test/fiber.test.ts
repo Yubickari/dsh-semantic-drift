@@ -275,7 +275,7 @@ test('the health route reports what the activation mounted', async () => {
   assert.equal(health.routes, 9)
   assert.equal(health.promptSection, true)
   assert.equal(health.announceToAgent, true)
-  assert.equal(health.announceDetail, 'full')
+  assert.equal(health.announceDetail, 'compact')
   harness.dispose()
 })
 
@@ -334,6 +334,59 @@ test('a volatile switch is read live, without remounting the row', async () => {
   on = true
   assert.match(promptText(harness.sections[0]), /Project vocabulary/, 'on: the same instance now announces')
   assert.equal(callHealth(harness).announceToAgent, true, 'health reports the live value')
+  harness.dispose()
+})
+
+test('tools expose lifecycle and a batch upsert with per-item results', async () => {
+  const module = await import('../lib/index.js')
+  const root = await fixture()
+  const harness = mount(root)
+  module.apply(harness.ctx, module.Config())
+  const byName = (name: string) => harness.tools.find(tool => tool.name === name) as {
+    execute(args: Record<string, unknown>, exec: Record<string, unknown>): Promise<Record<string, unknown>>
+  }
+  const upsertSchema = (harness.tools.find(tool => tool.name === 'semantic_upsert') as {
+    parameters: {
+      properties: Record<string, { enum?: string[]; items?: { required?: string[]; properties?: Record<string, unknown> } }>
+    }
+  }).parameters
+  assert.deepEqual(upsertSchema.properties.lifecycle.enum, ['planned', 'active', 'deprecated'])
+  assert.deepEqual(upsertSchema.properties.concepts.items?.required, ['conceptId'])
+  assert.ok(upsertSchema.properties.concepts.items?.properties?.lifecycle !== undefined)
+
+  const batch = await byName('semantic_upsert').execute({
+    concepts: [
+      { conceptId: 'device.state', terms: '设备状态', kind: 'status', symbol: 'DeviceState', lifecycle: 'planned' },
+      { conceptId: 'device.mode', terms: '设备模式', kind: 'status', symbol: 'DeviceMode', lifecycle: 'active' },
+      { conceptId: 'FlatName', terms: '扁平名', kind: 'entity', symbol: 'FlatName' },
+    ],
+  }, {})
+  assert.equal(batch.ok, true)
+  assert.equal(batch.created, 2)
+  assert.equal(batch.failed, 1)
+  const results = batch.results as Array<{ index: number; ok: boolean; issues?: Array<{ code: string; suggestion?: string }> }>
+  assert.equal(results.length, 3)
+  assert.equal(results[2].ok, false)
+  assert.equal(results[2].issues?.[0].code, 'id-format')
+  assert.equal(results[2].issues?.[0].suggestion, 'device.flat_name')
+
+  const listed = await byName('semantic_list').execute({}, {})
+  assert.equal(listed.ok, true)
+  assert.equal(listed.total, 2)
+  assert.equal(listed.returned, 2)
+  assert.deepEqual(listed.counts, { active: 1, planned: 1, deprecated: 0 })
+  const concepts = listed.concepts as Array<{ id: string; lifecycle?: string }>
+  assert.equal(concepts.find(concept => concept.id === 'device.state')?.lifecycle, 'planned')
+  assert.equal(concepts.find(concept => concept.id === 'device.mode')?.lifecycle, undefined, 'active is omitted from list output')
+
+  const got = await byName('semantic_get').execute({ id: 'device.mode' }, {})
+  assert.equal((got.concept as { lifecycle?: string }).lifecycle, 'active', 'get always carries the effective lifecycle')
+
+  const allBad = await byName('semantic_upsert').execute({
+    concepts: [{ conceptId: 'bad', terms: '坏', kind: 'entity', symbol: 'Bad' }],
+  }, {})
+  assert.equal(allBad.ok, false)
+  assert.equal(Array.isArray(allBad.issues), true, 'an all-failed batch still exposes positioned issues')
   harness.dispose()
 })
 
