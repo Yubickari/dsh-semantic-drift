@@ -18,11 +18,12 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { Document, isSeq, parseDocument } from 'yaml'
-import { CONCEPT_KINDS, VOCABULARY_VERSION } from './protocol.ts'
+import { CONCEPT_KINDS, CONCEPT_LIFECYCLES, SUPPORTED_VOCABULARY_VERSIONS, VOCABULARY_VERSION } from './protocol.ts'
 import type {
   AcceptedException,
   Concept,
   ConceptKind,
+  ConceptLifecycle,
   ValidationIssue,
   VocabularyDocument,
   VocabularyState,
@@ -54,7 +55,7 @@ const CONCEPT_ID_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
 /** A canonical symbol must be a plain identifier. */
 const SYMBOL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-const KNOWN_CONCEPT_KEYS = new Set(['id', 'terms', 'kind', 'canonical', 'note', 'accepted'])
+const KNOWN_CONCEPT_KEYS = new Set(['id', 'terms', 'kind', 'canonical', 'lifecycle', 'note', 'accepted'])
 const KNOWN_TOP_LEVEL_KEYS = new Set(['version', 'meta', 'exclude', 'concepts'])
 
 /** Today in `YYYY-MM-DD`, using the local calendar. */
@@ -71,6 +72,41 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+/** Normalize a free-form id into snake_case; suggestion input only. */
+function toSnakeCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+}
+
+/** The group prefix most existing ids use, if there is one. */
+function inferGroupHint(entries: unknown): string | undefined {
+  if (!Array.isArray(entries)) return undefined
+  const counts = new Map<string, number>()
+  for (const entry of entries) {
+    if (!isPlainObject(entry)) continue
+    const id = asString(entry.id)
+    if (id === undefined) continue
+    const [group] = id.split('.')
+    if (group !== undefined && group !== id) counts.set(group, (counts.get(group) ?? 0) + 1)
+  }
+  let best: string | undefined
+  for (const [group, count] of counts) {
+    if (best === undefined || count > (counts.get(best) ?? 0)) best = group
+  }
+  return best
+}
+
+/** A corrected id for an `id-format` issue; never applied automatically. */
+function suggestConceptId(id: string, groupHint: string | undefined): string | undefined {
+  const snake = toSnakeCase(id)
+  if (snake === '') return undefined
+  if (snake.includes('.')) return snake
+  return `${groupHint ?? 'domain'}.${snake}`
 }
 
 /** 1-based line of the first occurrence of `needle`, for issue positioning. */
@@ -124,11 +160,21 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
     }
   }
 
-  const version = typeof raw.version === 'number' ? raw.version : VOCABULARY_VERSION
-  if (raw.version !== undefined && version !== VOCABULARY_VERSION) {
+  const requestedVersion = raw.version
+  const version = typeof requestedVersion === 'number' ? requestedVersion : VOCABULARY_VERSION
+  const supportedVersions = SUPPORTED_VOCABULARY_VERSIONS as readonly number[]
+  if (requestedVersion !== undefined && typeof requestedVersion !== 'number') {
+    issues.push({
+      code: 'version-shape',
+      message: '`version` must be a number.',
+      severity: 'error',
+      path: 'version',
+      line: findLine(text, 'version:'),
+    })
+  } else if (requestedVersion !== undefined && !supportedVersions.includes(version)) {
     issues.push({
       code: 'version-unsupported',
-      message: `Vocabulary version ${String(raw.version)} is not supported; this plugin writes version ${VOCABULARY_VERSION}.`,
+      message: `Vocabulary version ${String(requestedVersion)} is not supported; this plugin reads version ${supportedVersions.join(', ')} and writes version ${VOCABULARY_VERSION}. Upgrade the plugin before upgrading the vocabulary.`,
       severity: 'error',
       path: 'version',
       line: findLine(text, 'version:'),
@@ -178,6 +224,7 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
   }
 
   const concepts: Concept[] = []
+  const groupHint = inferGroupHint(raw.concepts)
   if (raw.concepts !== undefined && !Array.isArray(raw.concepts)) {
     issues.push({
       code: 'concepts-shape',
@@ -209,12 +256,14 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
         continue
       }
       if (!CONCEPT_ID_PATTERN.test(id)) {
+        const suggestion = suggestConceptId(id, groupHint)
         issues.push({
           code: 'id-format',
-          message: `Concept id \`${id}\` must have at least two lowercase, dot-separated segments (e.g. \`a.b\`): letters, digits and underscores.`,
+          message: `Concept id \`${id}\` must have at least two lowercase, dot-separated segments (e.g. \`a.b\`): letters, digits and underscores.${suggestion === undefined ? '' : ` Try \`${suggestion}\`.`}`,
           severity: 'error',
           path: `${at}.id`,
           line: findLine(text, id),
+          ...(suggestion === undefined ? {} : { suggestion }),
         })
       }
 
@@ -255,6 +304,30 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
         })
       } else {
         kind = kindRaw as ConceptKind
+      }
+
+      const lifecycleRaw = asString(entry.lifecycle)
+      let lifecycle: ConceptLifecycle = 'active'
+      if (entry.lifecycle !== undefined && lifecycleRaw === undefined) {
+        issues.push({
+          code: 'lifecycle-invalid',
+          message: `\`${at}.lifecycle\` must be one of ${CONCEPT_LIFECYCLES.join(', ')}.`,
+          severity: 'error',
+          path: `${at}.lifecycle`,
+          line: findLine(text, id),
+        })
+      } else if (lifecycleRaw !== undefined) {
+        if (!(CONCEPT_LIFECYCLES as readonly string[]).includes(lifecycleRaw)) {
+          issues.push({
+            code: 'lifecycle-invalid',
+            message: `\`${at}.lifecycle\` must be one of ${CONCEPT_LIFECYCLES.join(', ')}.`,
+            severity: 'error',
+            path: `${at}.lifecycle`,
+            line: findLine(text, id),
+          })
+        } else {
+          lifecycle = lifecycleRaw as ConceptLifecycle
+        }
       }
 
       const canonicalRaw = isPlainObject(entry.canonical) ? entry.canonical : undefined
@@ -339,6 +412,7 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
           ...(canonicalType === undefined ? {} : { type: canonicalType }),
           ...(canonicalUnit === undefined ? {} : { unit: canonicalUnit }),
         },
+        ...(lifecycle === 'active' ? {} : { lifecycle }),
         ...(note === undefined ? {} : { note }),
         ...(accepted.length === 0 ? {} : { accepted }),
       })
@@ -346,7 +420,7 @@ export function normalizeDocument(raw: unknown, text: string): { document: Vocab
   }
 
   const document: VocabularyDocument = {
-    version: VOCABULARY_VERSION,
+    version: supportedVersions.includes(version) ? version : VOCABULARY_VERSION,
     ...(project === undefined && updated === undefined
       ? {}
       : { meta: { ...(project === undefined ? {} : { project }), ...(updated === undefined ? {} : { updated }) } }),
@@ -463,7 +537,7 @@ export function hasErrors(issues: readonly ValidationIssue[]): boolean {
 
 /** Canonical YAML for one document. Idempotent: re-parsing it yields the same document. */
 export function serializeVocabulary(document: VocabularyDocument): string {
-  const plain: Record<string, unknown> = { version: VOCABULARY_VERSION }
+  const plain: Record<string, unknown> = { version: document.version }
   if (document.meta?.project !== undefined || document.meta?.updated !== undefined) {
     plain.meta = {
       ...(document.meta.project === undefined ? {} : { project: document.meta.project }),
@@ -480,6 +554,7 @@ export function serializeVocabulary(document: VocabularyDocument): string {
       ...(concept.canonical.type === undefined ? {} : { type: concept.canonical.type }),
       ...(concept.canonical.unit === undefined ? {} : { unit: concept.canonical.unit }),
     },
+    ...(concept.lifecycle === undefined || concept.lifecycle === 'active' ? {} : { lifecycle: concept.lifecycle }),
     ...(concept.note === undefined ? {} : { note: concept.note }),
     ...(concept.accepted === undefined || concept.accepted.length === 0
       ? {}
@@ -613,7 +688,9 @@ export async function saveVocabulary(
   const file = vocabularyFile(root, relativePath)
   const project = document.meta?.project ?? basename(root)
   const next: VocabularyDocument = {
-    version: VOCABULARY_VERSION,
+    version: (SUPPORTED_VOCABULARY_VERSIONS as readonly number[]).includes(document.version)
+      ? document.version
+      : VOCABULARY_VERSION,
     meta: { project, updated: today(options.now) },
     exclude: [...document.exclude],
     concepts: document.concepts,

@@ -24,11 +24,24 @@ export const API_PREFIX = '/semantic-drift'
 /** Vocabulary file format version written by this plugin. */
 export const VOCABULARY_VERSION = 1
 
+/**
+ * Vocabulary versions this build can read.
+ *
+ * v1 is frozen after 0.3.0: fields are only added, never repurposed, and every
+ * new field stays optional. v2 (behaviors) is not implemented yet; a file that
+ * declares it is refused with `version-unsupported` instead of being silently
+ * downgraded.
+ */
+export const SUPPORTED_VOCABULARY_VERSIONS = [1] as const
+
 /** Default vocabulary location, relative to the workspace root. */
 export const DEFAULT_VOCABULARY_PATH = '.dsh/semantics.yaml'
 
 /** Concept kinds. A closed set: the panel renders one editor per kind. */
 export const CONCEPT_KINDS = ['entity', 'quantity', 'enum', 'status', 'reference'] as const
+
+/** Concept lifecycle. `kind: status` describes the data shape; this is its stage. */
+export const CONCEPT_LIFECYCLES = ['planned', 'active', 'deprecated'] as const
 
 /** Confidence levels, ordered from strongest evidence to weakest. */
 export const CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const
@@ -59,6 +72,7 @@ export const DETECTOR_RULES = [
 export const DETECTOR_IDS = ['duplicate-type', 'contract-drift', 'symbol-variant', 'term-unmapped'] as const
 
 export type ConceptKind = (typeof CONCEPT_KINDS)[number]
+export type ConceptLifecycle = (typeof CONCEPT_LIFECYCLES)[number]
 export type Confidence = (typeof CONFIDENCE_LEVELS)[number]
 export type CitationStyle = (typeof CITATION_STYLES)[number]
 export type DetectorId = (typeof DETECTOR_IDS)[number]
@@ -88,6 +102,11 @@ export interface Concept {
   terms: string[]
   kind: ConceptKind
   canonical: Canonical
+  /**
+   * Lifecycle stage. Omitted means `active`; `planned` and `deprecated` are
+   * written out and are skipped by the `term-unmapped` detector.
+   */
+  lifecycle?: ConceptLifecycle
   note?: string
   accepted?: AcceptedException[]
 }
@@ -114,6 +133,8 @@ export interface ValidationIssue {
   column?: number
   /** Document path such as `concepts[2].canonical.symbol`. */
   path?: string
+  /** A corrected value, when the issue is a format problem with an obvious fix. */
+  suggestion?: string
   severity: 'error' | 'warning'
 }
 
